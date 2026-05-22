@@ -508,29 +508,74 @@ ipcMain.handle('select-excel-file', async () => {
   return { success: true, filePath: result.filePaths[0] }
 })
 
+/**
+ * Excel读取结果接口
+ * @property success - 是否成功
+ * @property headers - 表头数组
+ * @property rows - 数据行数组
+ * @property sheetName - Sheet名称
+ * @property sheetIndex - Sheet索引
+ * @property message - 错误信息（失败时）
+ */
+interface ReadExcelResult {
+  success: boolean
+  headers?: string[]
+  rows?: any[][]
+  sheetName?: string
+  sheetIndex?: number
+  message?: string
+}
+
+/**
+ * 读取Excel文件的公共函数
+ * @param filePath - Excel文件路径
+ * @param sheetIndex - Sheet索引，可选，默认读取第一个Sheet
+ * @returns ReadExcelResult 读取结果对象
+ * @throws 文件读取或解析失败时抛出错误
+ */
+function readExcelFile(filePath: string, sheetIndex?: number): ReadExcelResult {
+  const buffer = fs.readFileSync(filePath)
+  const workbook = XLSX.read(buffer, { type: 'buffer' })
+
+  const targetSheetIndex = sheetIndex !== undefined ? sheetIndex : 0
+
+  if (targetSheetIndex < 0 || targetSheetIndex >= workbook.SheetNames.length) {
+    return { success: false, message: 'Sheet索引超出范围' }
+  }
+
+  const sheetName = workbook.SheetNames[targetSheetIndex]
+  const worksheet = workbook.Sheets[sheetName]
+  const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
+
+  if (jsonData.length === 0) {
+    return { success: false, message: sheetIndex !== undefined ? 'Sheet 为空' : 'Excel 文件为空' }
+  }
+
+  return {
+    success: true,
+    headers: jsonData[0] as string[],
+    rows: jsonData.slice(1),
+    sheetName,
+    sheetIndex: targetSheetIndex
+  }
+}
+
 // 2. 读取 Excel
 ipcMain.handle('read-excel', async (_, filePath: string) => {
   try {
-    // 使用 fs.readFileSync + XLSX.read 替代 XLSX.readFile
-    // 原因：Vite 打包时将 xlsx 内联，导致 xlsx 内部的 _fs (require('fs')) 被移除
-    const buffer = fs.readFileSync(filePath)
-    const workbook = XLSX.read(buffer, { type: 'buffer' })
-    const sheetNames = workbook.SheetNames  // 获取所有Sheet名称
-    const firstSheetName = sheetNames[0]
-    const worksheet = workbook.Sheets[firstSheetName]
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
-
-    if (jsonData.length === 0) {
-      return { success: false, message: 'Excel 文件为空' }
+    const result = readExcelFile(filePath)
+    if (!result.success) {
+      return result
     }
 
+    // 重新读取workbook以获取所有Sheet名称
+    const buffer = fs.readFileSync(filePath)
+    const workbook = XLSX.read(buffer, { type: 'buffer' })
+    const sheetNames = workbook.SheetNames
+
     return {
-      success: true,
-      headers: jsonData[0] as string[],
-      rows: jsonData.slice(1),
-      sheetName: firstSheetName,
-      sheetIndex: 0,
-      sheetNames,        // 返回所有Sheet名称
+      ...result,
+      sheetNames,
       fileName: path.basename(filePath)
     }
   } catch (error) {
@@ -541,28 +586,7 @@ ipcMain.handle('read-excel', async (_, filePath: string) => {
 // 新增：按Sheet索引读取指定Sheet
 ipcMain.handle('read-excel-sheet', async (_, filePath: string, sheetIndex: number) => {
   try {
-    const buffer = fs.readFileSync(filePath)
-    const workbook = XLSX.read(buffer, { type: 'buffer' })
-    
-    if (sheetIndex < 0 || sheetIndex >= workbook.SheetNames.length) {
-      return { success: false, message: 'Sheet索引超出范围' }
-    }
-    
-    const sheetName = workbook.SheetNames[sheetIndex]
-    const worksheet = workbook.Sheets[sheetName]
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
-
-    if (jsonData.length === 0) {
-      return { success: false, message: 'Sheet 为空' }
-    }
-
-    return {
-      success: true,
-      headers: jsonData[0] as string[],
-      rows: jsonData.slice(1),
-      sheetName,
-      sheetIndex
-    }
+    return readExcelFile(filePath, sheetIndex)
   } catch (error) {
     return { success: false, message: `读取Sheet失败: ${error}` }
   }
