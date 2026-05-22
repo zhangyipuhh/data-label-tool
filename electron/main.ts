@@ -1209,6 +1209,33 @@ ipcMain.handle('generate-encryption-key', async (): Promise<{ success: boolean; 
   }
 })
 
+// 19. 获取机器指纹信息（用于调试和验证）
+ipcMain.handle('get-machine-fingerprint', async (): Promise<{ success: boolean; fingerprint?: any; message?: string }> => {
+  try {
+    const encryption = getDbEncryption()
+
+    if (!encryption.checkDebugMode()) {
+      return {
+        success: false,
+        message: '非调试模式无法获取机器指纹'
+      }
+    }
+
+    const fingerprint = encryption.getMachineFingerprint()
+    return {
+      success: true,
+      fingerprint: fingerprint,
+      message: '机器指纹获取成功'
+    }
+  } catch (error) {
+    console.error('获取机器指纹失败:', error)
+    return {
+      success: false,
+      message: `获取机器指纹失败: ${error}`
+    }
+  }
+})
+
 // ========== 应用生命周期 ==========
 
 app.whenReady().then(async () => {

@@ -2,16 +2,17 @@ import Database from 'better-sqlite3'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import {
+  getSecureKeyManager,
+  getMachineFingerprint
+} from './secure-key-manager'
 
 /**
  * 数据库加密配置
- * @property DEFAULT_KEY - 默认加密密钥（生产环境应从安全的地方获取）
- * @property KEY_ENV_VAR - 环境变量名称，用于从环境变量读取密钥
  * @property DEBUG_MODE_KEY - 调试模式密钥文件路径标记
+ * @property KEY_FILE_NAME - 密钥文件名称
  */
 const ENCRYPTION_CONFIG = {
-  DEFAULT_KEY: 'DataLabelTool@2024#SecureKey!',
-  KEY_ENV_VAR: 'SQLCIPHER_KEY',
   DEBUG_MODE_KEY: '.debug_mode',
   KEY_FILE_NAME: '.db_key'
 }
@@ -76,18 +77,24 @@ export class DatabaseEncryption {
 
   /**
    * 加载加密密钥
-   * 优先级: 环境变量 > 密钥文件 > 默认密钥
+   * 优先级: 机器派生密钥 > 密钥文件（仅调试模式）
+   * 生产环境使用机器指纹派生的密钥，确保数据库绑定到特定机器
    */
   private loadEncryptionKey(): void {
-    // 优先级1: 环境变量
-    const envKey = process.env[ENCRYPTION_CONFIG.KEY_ENV_VAR]
-    if (envKey) {
-      this.encryptionKey = envKey
-      console.log('[DB Encryption] 已从环境变量加载密钥')
-      return
+    try {
+      // 优先级1: 机器派生密钥（生产环境使用）
+      // 基于机器硬件信息（CPU、MAC地址等）派生唯一密钥
+      const machineKey = getMachineDerivedKey()
+      if (machineKey) {
+        this.encryptionKey = machineKey
+        console.log('[DB Encryption] 已使用机器指纹派生密钥')
+        return
+      }
+    } catch (error) {
+      console.warn('[DB Encryption] 机器派生密钥失败:', error)
     }
 
-    // 优先级2: 密钥文件（仅调试模式）
+    // 优先级2: 密钥文件（仅调试模式，用于开发测试）
     if (this.isDebugMode) {
       const keyFilePath = path.join(process.cwd(), ENCRYPTION_CONFIG.KEY_FILE_NAME)
       if (fs.existsSync(keyFilePath)) {
@@ -95,20 +102,21 @@ export class DatabaseEncryption {
           const keyData = fs.readFileSync(keyFilePath, 'utf-8').trim()
           if (keyData) {
             this.encryptionKey = keyData
-            console.log('[DB Encryption] 已从密钥文件加载密钥')
+            console.log('[DB Encryption] 已从密钥文件加载密钥（调试模式）')
             return
           }
         } catch (error) {
           console.warn('[DB Encryption] 读取密钥文件失败:', error)
         }
       }
-    }
 
-    // 优先级3: 默认密钥（仅调试模式警告）
-    if (this.isDebugMode) {
-      console.warn('[DB Encryption] 使用默认密钥，生产环境请设置环境变量或密钥文件')
+      // 调试模式下生成临时密钥
+      console.warn('[DB Encryption] 调试模式：生成临时密钥')
+      this.encryptionKey = crypto.randomBytes(32).toString('base64')
+    } else {
+      // 生产环境无法获取密钥时抛出错误
+      throw new Error('无法加载加密密钥：机器派生失败且非调试模式')
     }
-    this.encryptionKey = ENCRYPTION_CONFIG.DEFAULT_KEY
   }
 
   /**
@@ -129,6 +137,14 @@ export class DatabaseEncryption {
    */
   checkDebugMode(): boolean {
     return this.isDebugMode
+  }
+
+  /**
+   * 获取机器指纹信息
+   * @returns MachineFingerprint | null 机器指纹信息
+   */
+  getMachineFingerprint() {
+    return getMachineFingerprint()
   }
 
   /**
@@ -383,4 +399,12 @@ export function isDebugMode(): boolean {
  */
 export function getEncryptionKey(): string | null {
   return getDbEncryption().getEncryptionKey()
+}
+
+/**
+ * 获取机器派生密钥的便捷函数
+ * @returns string 机器派生的密钥
+ */
+export function getMachineDerivedKey(): string {
+  return getSecureKeyManager().getKey()
 }

@@ -228,6 +228,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateEncryptionKey: () =>
     ipcRenderer.invoke('generate-encryption-key'),
 
+  /**
+   * 获取机器指纹信息（仅调试模式可用）
+   * @returns Promise<{ success: boolean; fingerprint?: any; message?: string }> - 机器指纹
+   */
+  getMachineFingerprint: () =>
+    ipcRenderer.invoke('get-machine-fingerprint'),
+
   // ========== 事件监听 ==========
 
   // 监听主进程事件
@@ -309,6 +316,7 @@ declare global {
       getEncryptionStatus: () => Promise<{ success: boolean; status?: EncryptionStatus; message?: string }>
       decryptDatabase: (params: DecryptDatabaseParams) => Promise<{ success: boolean; message?: string; outputPath?: string }>
       generateEncryptionKey: () => Promise<{ success: boolean; key?: string; message?: string }>
+      getMachineFingerprint: () => Promise<{ success: boolean; fingerprint?: any; message?: string }>
 
       // 事件监听
       onFolderOpened: (callback: (data: { folderPath: string; tree: any[] }) => void) => void

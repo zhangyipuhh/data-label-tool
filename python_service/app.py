@@ -18,6 +18,9 @@ from flask_cors import CORS
 import torch
 from transformers import BertTokenizer, BertForTokenClassification
 
+# 导入过滤模块
+from text_filter import get_text_filter, FilterResultType
+
 # 设置 stdout/stderr 编码为 utf-8，解决 Windows 终端中文乱码问题
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
@@ -211,18 +214,43 @@ class BERTModel:
     """BERT 缩写识别模型包装类"""
 
     def __init__(self):
-        """初始化时立即加载模型"""
-        logger.info("正在加载 NAR 模型...")
+        """初始化时立即加载模型和过滤器"""
+        logger.info("=" * 60)
+        logger.info("[DEBUG] BERTModel 初始化开始")
+        logger.info("=" * 60)
+
+        logger.info("[DEBUG] 正在加载 NAR 模型...")
         self.inference = NARInference(
             model_path=os.path.join(os.path.dirname(__file__), "..", "models", "abbr_mapper_nar"),
             verbose=True
         )
         self.inference.load_model()
-        logger.info("NAR 模型加载完成")
+        logger.info("[DEBUG] NAR 模型加载完成")
+
+        # 初始化文本过滤器
+        logger.info("[DEBUG] 正在初始化文本过滤器...")
+        self.text_filter = get_text_filter()
+
+        # 记录过滤器配置信息
+        from config_manager import get_config_manager
+        config = get_config_manager()
+        logger.info(f"[DEBUG] 配置文件路径: {config.config_path}")
+        logger.info(f"[DEBUG] 配置文件是否存在: {os.path.exists(config.config_path)}")
+        logger.info(f"[DEBUG] 配置文件加载状态: {config.is_loaded()}")
+        logger.info(f"[DEBUG] 精确匹配规则数: {len(config.get_all_exact_rules())}")
+        logger.info(f"[DEBUG] 前缀匹配规则数: {len(config.get_all_prefixes())}")
+        logger.info(f"[DEBUG] 前缀规则列表: {config.get_all_prefixes()}")
+        logger.info("[DEBUG] 文本过滤器初始化完成")
+        logger.info("=" * 60)
 
     def predict_single(self, text: str, k: int = 5) -> Dict[str, Any]:
         """
         单个缩写预测
+
+        处理流程：
+        1. 先进行规则过滤检查（前缀匹配、精确匹配）
+        2. 如果匹配规则，直接返回结果（置信度100%）
+        3. 否则调用模型进行识别
 
         参数:
             text: 输入缩写
@@ -231,6 +259,40 @@ class BERTModel:
         返回:
             {"content": "全称", "confidence": 0.85, "alternatives": [...]}
         """
+        logger.info(f"[DEBUG] predict_single 被调用，输入: '{text}'")
+        sys.stdout.flush()
+
+        # 1. 先进行过滤检查
+        filter_result = self.text_filter.filter(text)
+        logger.info(f"[DEBUG] 过滤结果: type={filter_result.result_type.value}, "
+                   f"processed='{filter_result.processed_text}', "
+                   f"output='{filter_result.output_text}', "
+                   f"matched_rule='{filter_result.matched_rule}'")
+        sys.stdout.flush()
+
+        # 2. 前缀匹配：直接返回原值
+        if filter_result.result_type == FilterResultType.PREFIX_MATCH:
+            logger.info(f"[DEBUG] 前缀匹配成功: '{text}' -> 返回原值")
+            sys.stdout.flush()
+            return {
+                "content": text,
+                "confidence": 1.0,
+                "alternatives": [{"content": text, "confidence": 1.0}]
+            }
+
+        # 3. 精确匹配：返回替换值
+        if filter_result.result_type == FilterResultType.EXACT_MATCH:
+            logger.info(f"[DEBUG] 精确匹配成功: '{text}' -> '{filter_result.output_text}'")
+            sys.stdout.flush()
+            return {
+                "content": filter_result.output_text,
+                "confidence": 1.0,
+                "alternatives": [{"content": filter_result.output_text, "confidence": 1.0}]
+            }
+
+        # 4. 需要模型识别
+        logger.info(f"[DEBUG] 未匹配规则，使用模型识别: '{text}'")
+        sys.stdout.flush()
         candidates = self.inference.expand_abbr_topk(text, k=k)
         return self._format_result(text, candidates)
 
@@ -412,11 +474,16 @@ def predict_stream():
         if not isinstance(texts, list):
             return jsonify({"error": "data 必须是数组"}), 400
 
-        logger.info(f"收到流式推理请求: {len(texts)} 条数据")
+        logger.info(f"[DEBUG] 收到流式推理请求: {len(texts)} 条数据, 内容: {texts}")
+        sys.stdout.flush()
 
         model = get_model()
+        logger.info(f"[DEBUG] 获取模型实例成功")
+        sys.stdout.flush()
 
         def generate():
+            logger.info(f"[DEBUG] 开始生成流式响应")
+            sys.stdout.flush()
             for chunk in model.predict_stream(texts, k=k):
                 yield chunk
 

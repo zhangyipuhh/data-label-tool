@@ -16,7 +16,7 @@ release/
 # 日志
 *.log
 logs/
-
+docs/
 # 环境变量
 .env
 .env.local
@@ -26,12 +26,17 @@ logs/
 .idea/
 *.swp
 *.swo
-
+*.md
 # 操作系统
 .DS_Store
 Thumbs.db
 AGENTS.md
+
+# 数据库加密密钥文件（仅开发环境使用，不要提交到版本控制）
+.db_key
 .debug_mode
+
+# 文档（开发中）
 docs/DB_ENCRYPTION.md
 image/.gitignore/1779425073312.png
 models/abbr_mapper_nar/added_tokens.json
