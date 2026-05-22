@@ -23,9 +23,24 @@ interface Props {
   onCellEdit: (rowIndex: number, colIndex: number, newValue: string) => void
   /** 列预测回调函数，右键点击"识别此列"时触发 */
   onColumnPredict?: (columnIndex: number) => void
+  /** Sheet名称数组 */
+  sheets?: string[]
+  /** 当前激活的Sheet索引 */
+  activeSheetIndex?: number
+  /** Sheet切换回调函数 */
+  onSheetChange?: (sheetIndex: number) => void
 }
 
-const DataTable: React.FC<Props> = ({ data, selectedColumn, onColumnSelect, onCellEdit, onColumnPredict }) => {
+const DataTable: React.FC<Props> = ({ 
+  data, 
+  selectedColumn, 
+  onColumnSelect, 
+  onCellEdit, 
+  onColumnPredict,
+  sheets,
+  activeSheetIndex,
+  onSheetChange
+}) => {
   const [editingCell, setEditingCell] = useState<{row: number; col: number} | null>(null)
   const [editValue, setEditValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -132,8 +147,9 @@ const DataTable: React.FC<Props> = ({ data, selectedColumn, onColumnSelect, onCe
   }, [contextMenu.visible, closeContextMenu])
 
   return (
-    <div className="table-container h-full border border-gray-200 rounded-lg">
-      <table className="data-table w-full text-sm">
+    <div className="table-container h-full border border-gray-200 rounded-lg flex flex-col">
+      <div className="flex-1 overflow-auto">
+        <table className="data-table w-full text-sm">
         <thead className="sticky top-0 z-10">
           <tr>
             <th className="w-10 text-center bg-gray-100 border-b border-gray-200 px-2 py-2 text-xs text-gray-500">
@@ -207,9 +223,31 @@ const DataTable: React.FC<Props> = ({ data, selectedColumn, onColumnSelect, onCe
         </tbody>
       </table>
 
-      {hasMore && (
-        <div className="text-center py-2 text-sm text-gray-500 bg-gray-50 border-t">
-          还有 {data.rows.length - 200} 行数据未显示（共 {data.rows.length} 行）
+        {hasMore && (
+          <div className="text-center py-2 text-sm text-gray-500 bg-gray-50 border-t">
+            还有 {data.rows.length - 200} 行数据未显示（共 {data.rows.length} 行）
+          </div>
+        )}
+      </div>
+
+      {/* Sheet标签栏 */}
+      {sheets && sheets.length > 1 && (
+        <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border-t border-gray-200 flex-shrink-0">
+          {sheets.map((sheetName, index) => (
+            <button
+              key={index}
+              onClick={() => onSheetChange?.(index)}
+              className={`
+                px-3 py-1 text-xs rounded transition-colors
+                ${activeSheetIndex === index
+                  ? 'bg-white text-blue-600 border border-blue-300 font-medium'
+                  : 'text-gray-600 hover:bg-gray-200 border border-transparent'
+                }
+              `}
+            >
+              {sheetName}
+            </button>
+          ))}
         </div>
       )}
 
