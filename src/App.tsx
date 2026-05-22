@@ -6,6 +6,8 @@ import ProgressBar from './components/ProgressBar'
 import PredictionPanel, { PredictionResult } from './components/PredictionPanel'
 import FeedbackModal from './components/FeedbackModal'
 import ResizableDivider from './components/ResizableDivider'
+import ExcelTabs, { ExcelTab } from './components/ExcelTabs'
+import CloseTabConfirmDialog from './components/CloseTabConfirmDialog'
 
 /** Excel 数据接口，DataTable 等组件依赖此接口 */
 export interface ExcelData {
@@ -13,6 +15,7 @@ export interface ExcelData {
   rows: any[][]
   fileName: string
   sheetName: string
+  sheetIndex: number  // 新增：当前Sheet在文件中的索引
 }
 
 /** 文件树节点接口，用于目录树展示 */
@@ -41,14 +44,12 @@ interface PredictionRecordMap {
 const isElectron = (): boolean => !!window.electronAPI
 
 function App() {
-  /** Excel 数据 */
-  const [excelData, setExcelData] = useState<ExcelData | null>(null)
-  /** 当前文件路径 */
-  const [currentFilePath, setCurrentFilePath] = useState('')
+  /** Tab列表，最多5个 */
+  const [tabs, setTabs] = useState<ExcelTab[]>([])
+  /** 当前激活的Tab ID */
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
   /** 消息提示内容 */
   const [message, setMessage] = useState('')
-  /** 是否有未保存的修改 */
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   /** 目录树数据 */
   const [directoryTree, setDirectoryTree] = useState<FileTreeNode[] | null>(null)
   /** 当前选中的 xlsx 文件路径 */
@@ -66,6 +67,17 @@ function App() {
   const SIDEBAR_MIN_WIDTH = 200
   /** 左侧栏最大宽度 */
   const SIDEBAR_MAX_WIDTH = 600
+
+  /** 关闭确认对话框状态 */
+  const [closeConfirmVisible, setCloseConfirmVisible] = useState(false)
+  const [closeConfirmTabId, setCloseConfirmTabId] = useState<string | null>(null)
+
+  // 辅助：获取当前激活的Tab
+  const activeTab = tabs.find(tab => tab.id === activeTabId) || null
+  // 辅助：获取当前Excel数据
+  const excelData = activeTab?.excelData ?? null
+  // 辅助：检查是否有未保存的更改
+  const hasUnsavedChanges = activeTab?.hasUnsavedChanges ?? false
 
   // ========== 预测相关状态 ==========
   /** 是否正在预测中 */
@@ -167,7 +179,8 @@ function App() {
   }, [])
 
   /**
-   * 从文件浏览器选择 xlsx 文件
+   * 处理文件选择
+   * 如果文件已打开则切换到对应Tab，否则创建新Tab
    * @param filePath - 选中的文件路径
    */
   const handleFileSelect = useCallback(async (filePath: string) => {
@@ -175,40 +188,173 @@ function App() {
       setMessage('❌ 请通过 Electron 启动应用 (npm run dev)')
       return
     }
+
     try {
+      // 1. 检查文件是否已打开
+      const existingTab = tabs.find(tab => tab.filePath === filePath)
+      if (existingTab) {
+        setActiveTabId(existingTab.id)
+        setSelectedFilePath(filePath)
+        return
+      }
+
+      // 2. 检查Tab数量限制
+      if (tabs.length >= 5) {
+        setMessage('⚠️ 最多只能打开5个文件，请先关闭其他文件')
+        return
+      }
+
+      // 3. 读取Excel文件
       setSelectedFilePath(filePath)
       const readResult = await window.electronAPI.readExcel(filePath)
       if (!readResult.success) {
         setMessage(readResult.message || '读取文件失败')
         return
       }
-      setExcelData({
-        headers: readResult.headers,
-        rows: readResult.rows,
+
+      // 4. 创建新Tab
+      const newTab: ExcelTab = {
+        id: filePath,
+        filePath,
         fileName: readResult.fileName,
-        sheetName: readResult.sheetName
-      })
-      setCurrentFilePath(filePath)
-      setHasUnsavedChanges(false)
+        sheets: readResult.sheetNames,
+        activeSheetIndex: 0,
+        excelData: {
+          headers: readResult.headers,
+          rows: readResult.rows,
+          fileName: readResult.fileName,
+          sheetName: readResult.sheetName,
+          sheetIndex: 0
+        },
+        hasUnsavedChanges: false,
+        selectedColumn: null
+      }
+
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(newTab.id)
       setMessage(`✅ 成功加载: ${readResult.fileName} (${readResult.rows.length} 行 × ${readResult.headers.length} 列)`)
     } catch (error) {
       setMessage(`❌ 错误: ${error}`)
     }
+  }, [tabs])
+
+  /**
+   * 切换Sheet
+   * 读取指定Sheet的数据并更新当前Tab
+   * @param tabId - Tab ID
+   * @param sheetIndex - Sheet索引
+   */
+  const handleSheetChange = useCallback(async (tabId: string, sheetIndex: number) => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab || tab.activeSheetIndex === sheetIndex) return
+
+    try {
+      const result = await window.electronAPI.readExcelSheet(tab.filePath, sheetIndex)
+      if (!result.success) {
+        setMessage(result.message || '切换Sheet失败')
+        return
+      }
+
+      setTabs(prev => prev.map(t => {
+        if (t.id === tabId) {
+          return {
+            ...t,
+            activeSheetIndex: sheetIndex,
+            excelData: {
+              headers: result.headers,
+              rows: result.rows,
+              fileName: t.fileName,
+              sheetName: result.sheetName,
+              sheetIndex
+            },
+            selectedColumn: null  // 切换Sheet后重置列选择
+          }
+        }
+        return t
+      }))
+    } catch (error) {
+      setMessage(`❌ 切换Sheet错误: ${error}`)
+    }
+  }, [tabs])
+
+  /**
+   * 关闭Tab
+   * 如果有未保存的更改，显示确认对话框
+   * @param tabId - 要关闭的Tab ID
+   */
+  const handleCloseTab = useCallback((tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab) return
+
+    if (tab.hasUnsavedChanges) {
+      setCloseConfirmTabId(tabId)
+      setCloseConfirmVisible(true)
+    } else {
+      closeTab(tabId)
+    }
+  }, [tabs])
+
+  /**
+   * 实际执行关闭Tab操作
+   * @param tabId - 要关闭的Tab ID
+   */
+  const closeTab = (tabId: string) => {
+    setTabs(prev => {
+      const newTabs = prev.filter(t => t.id !== tabId)
+      // 如果关闭的是当前激活的Tab，切换到相邻Tab
+      if (activeTabId === tabId) {
+        const closedIndex = prev.findIndex(t => t.id === tabId)
+        const newActiveTab = newTabs[Math.min(closedIndex, newTabs.length - 1)]
+        setActiveTabId(newActiveTab?.id ?? null)
+        setSelectedFilePath(newActiveTab?.filePath ?? null)
+      }
+      return newTabs
+    })
+    setCloseConfirmVisible(false)
+    setCloseConfirmTabId(null)
+  }
+
+  /**
+   * 确认关闭Tab并保存
+   */
+  const handleCloseConfirmSave = useCallback(async () => {
+    if (!closeConfirmTabId) return
+    // 先保存
+    await handleQuickSave(closeConfirmTabId)
+    // 再关闭
+    closeTab(closeConfirmTabId)
+  }, [closeConfirmTabId])
+
+  /**
+   * 确认关闭Tab但不保存
+   */
+  const handleCloseConfirmDiscard = useCallback(() => {
+    if (!closeConfirmTabId) return
+    closeTab(closeConfirmTabId)
+  }, [closeConfirmTabId])
+
+  /**
+   * 取消关闭Tab
+   */
+  const handleCloseConfirmCancel = useCallback(() => {
+    setCloseConfirmVisible(false)
+    setCloseConfirmTabId(null)
   }, [])
 
   /**
    * 单元格编辑处理
+   * 更新当前激活Tab的对应单元格数据
    * @param rowIndex - 行索引
    * @param colIndex - 列索引
    * @param newValue - 新值
    */
   const handleCellEdit = useCallback((rowIndex: number, colIndex: number, newValue: string) => {
-    if (!excelData) return
+    if (!activeTab || !activeTabId) return
 
-    const oldValue = String(excelData.rows[rowIndex]?.[colIndex] || '')
+    const oldValue = String(activeTab.excelData.rows[rowIndex]?.[colIndex] || '')
     if (oldValue === newValue) return
 
-    const newRows = excelData.rows.map((row, rIdx) => {
+    const newRows = activeTab.excelData.rows.map((row, rIdx) => {
       if (rIdx === rowIndex) {
         const newRow = [...row]
         newRow[colIndex] = newValue
@@ -217,17 +363,29 @@ function App() {
       return row
     })
 
-    setExcelData({ ...excelData, rows: newRows })
-    setHasUnsavedChanges(true)
-    setMessage(`✏️ 已修改 [${rowIndex + 1}行, ${excelData.headers[colIndex] || `列${colIndex + 1}`}]`)
-  }, [excelData])
+    setTabs(prev => prev.map(tab => {
+      if (tab.id === activeTabId) {
+        return {
+          ...tab,
+          excelData: { ...tab.excelData, rows: newRows },
+          hasUnsavedChanges: true
+        }
+      }
+      return tab
+    }))
+
+    setMessage(`✏️ 已修改 [${rowIndex + 1}行, ${activeTab.excelData.headers[colIndex] || `列${colIndex + 1}`}]`)
+  }, [activeTab, activeTabId])
 
   /**
    * 另存为文件
    * 弹出对话框让用户选择保存方式
+   * @param tabId - 可选，指定要保存的Tab，默认保存当前激活Tab
    */
-  const handleSave = useCallback(async () => {
-    if (!excelData || !currentFilePath) {
+  const handleSave = useCallback(async (tabId?: string) => {
+    const targetTabId = tabId || activeTabId
+    const tab = tabs.find(t => t.id === targetTabId)
+    if (!tab) {
       setMessage('❌ 没有可保存的数据')
       return
     }
@@ -237,20 +395,25 @@ function App() {
     }
 
     try {
-      // 询问保存方式：覆盖原文件 / 另存为
       const result = await window.electronAPI.saveExcel({
-        filePath: currentFilePath,
-        headers: excelData.headers,
-        rows: excelData.rows,
+        filePath: tab.filePath,
+        headers: tab.excelData.headers,
+        rows: tab.excelData.rows,
         mode: 'ask'  // 让用户选择覆盖或另存
       })
 
       if (result.success) {
-        setHasUnsavedChanges(false)
-        if (result.newPath) {
-          setCurrentFilePath(result.newPath)
-          setExcelData({ ...excelData, fileName: result.fileName || excelData.fileName })
-        }
+        setTabs(prev => prev.map(t => {
+          if (t.id === targetTabId) {
+            return {
+              ...t,
+              hasUnsavedChanges: false,
+              filePath: result.newPath || t.filePath,
+              fileName: result.fileName || t.fileName
+            }
+          }
+          return t
+        }))
         setMessage(`✅ 已保存: ${result.filePath}`)
       } else {
         setMessage(`❌ 保存失败: ${result.message}`)
@@ -258,14 +421,17 @@ function App() {
     } catch (error) {
       setMessage(`❌ 保存错误: ${error}`)
     }
-  }, [excelData, currentFilePath])
+  }, [activeTabId, tabs])
 
   /**
    * 快捷保存（直接覆盖原文件）
    * 绑定 Ctrl+S 快捷键
+   * @param tabId - 可选，指定要保存的Tab
    */
-  const handleQuickSave = useCallback(async () => {
-    if (!excelData || !currentFilePath) return
+  const handleQuickSave = useCallback(async (tabId?: string) => {
+    const targetTabId = tabId || activeTabId
+    const tab = tabs.find(t => t.id === targetTabId)
+    if (!tab) return
     if (!isElectron()) {
       setMessage('❌ 请通过 Electron 启动应用 (npm run dev)')
       return
@@ -273,14 +439,19 @@ function App() {
 
     try {
       const result = await window.electronAPI.saveExcel({
-        filePath: currentFilePath,
-        headers: excelData.headers,
-        rows: excelData.rows,
+        filePath: tab.filePath,
+        headers: tab.excelData.headers,
+        rows: tab.excelData.rows,
         mode: 'overwrite'
       })
 
       if (result.success) {
-        setHasUnsavedChanges(false)
+        setTabs(prev => prev.map(t => {
+          if (t.id === targetTabId) {
+            return { ...t, hasUnsavedChanges: false }
+          }
+          return t
+        }))
         setMessage('✅ 已保存到原文件')
       } else {
         setMessage(`❌ 保存失败: ${result.message}`)
@@ -288,7 +459,7 @@ function App() {
     } catch (error) {
       setMessage(`❌ 保存错误: ${error}`)
     }
-  }, [excelData, currentFilePath])
+  }, [activeTabId, tabs])
 
   // ========== 预测功能 ==========
 
@@ -302,7 +473,7 @@ function App() {
       setMessage('❌ 请通过 Electron 启动应用 (npm run dev)')
       return
     }
-    if (!excelData) {
+    if (!activeTab) {
       setMessage('❌ 请先加载数据文件')
       return
     }
@@ -312,7 +483,7 @@ function App() {
       const columnValues: string[] = []
       const uniqueValues = new Set<string>()
       
-      excelData.rows.forEach(row => {
+      activeTab.excelData.rows.forEach(row => {
         const value = String(row[columnIndex] || '').trim()
         if (value && !uniqueValues.has(value)) {
           uniqueValues.add(value)
@@ -340,7 +511,7 @@ function App() {
       // 保存源字段列表，用于后续关联预测结果
       currentPredictionSourceFields.current = columnValues
 
-      setMessage(`🚀 开始预测列 "${excelData.headers[columnIndex] || `列${columnIndex + 1}`}"，共 ${columnValues.length} 个唯一值`)
+      setMessage(`🚀 开始预测列 "${activeTab.excelData.headers[columnIndex] || `列${columnIndex + 1}`}"，共 ${columnValues.length} 个唯一值`)
 
       // 启动流式预测
       await window.electronAPI.predictStream(columnValues, 3)
@@ -348,7 +519,7 @@ function App() {
       setIsPredicting(false)
       setMessage(`❌ 预测启动失败: ${error}`)
     }
-  }, [excelData])
+  }, [activeTab])
 
   /**
    * 处理预测进度事件
@@ -386,16 +557,16 @@ function App() {
     setPredictionResults(prev => [...prev, predictionResult])
 
     // 保存预测记录到数据库
-      if (excelData && currentFilePath && selectedPredictionColumn !== null) {
-        try {
-          const result = await window.electronAPI.savePredictionRecord({
-            batchId: currentBatchId,
-            sourceField: sourceField,
-            predictedResult: data.result.content,
-            confidence: data.result.confidence,
-            columnName: excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`,
-            fileName: excelData.fileName
-          })
+    if (activeTab && selectedPredictionColumn !== null) {
+      try {
+        const result = await window.electronAPI.savePredictionRecord({
+          batchId: currentBatchId,
+          sourceField: sourceField,
+          predictedResult: data.result.content,
+          confidence: data.result.confidence,
+          columnName: activeTab.excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`,
+          fileName: activeTab.excelData.fileName
+        })
 
         if (result.success && result.id) {
           // 保存记录ID，用于后续更新用户选择
@@ -405,7 +576,7 @@ function App() {
         console.error('保存预测记录失败:', error)
       }
     }
-  }, [excelData, currentFilePath, selectedPredictionColumn, currentBatchId])
+  }, [activeTab, selectedPredictionColumn, currentBatchId])
 
   /**
    * 处理预测完成事件
@@ -456,13 +627,13 @@ function App() {
    * @param result - 要应用的预测内容
    */
   const handleApplySingle = useCallback(async (index: number, result: string) => {
-    if (!excelData || selectedPredictionColumn === null) return
+    if (!activeTab || selectedPredictionColumn === null) return
 
     const sourceField = predictionResults[index]?.sourceField
     if (!sourceField) return
 
     // 更新数据表中所有匹配的单元格（回填到选中的列）
-    const newRows = excelData.rows.map(row => {
+    const newRows = activeTab.excelData.rows.map(row => {
       const cellValue = String(row[selectedPredictionColumn] || '').trim()
       if (cellValue === sourceField) {
         const newRow = [...row]
@@ -473,8 +644,16 @@ function App() {
       return row
     })
 
-    setExcelData({ ...excelData, rows: newRows })
-    setHasUnsavedChanges(true)
+    setTabs(prev => prev.map(tab => {
+      if (tab.id === activeTabId) {
+        return {
+          ...tab,
+          excelData: { ...tab.excelData, rows: newRows },
+          hasUnsavedChanges: true
+        }
+      }
+      return tab
+    }))
 
     // 更新数据库中的用户选择
     const recordId = predictionRecordIds.current[index]
@@ -489,16 +668,16 @@ function App() {
       }
     }
 
-    const columnName = excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`
+    const columnName = activeTab.excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`
     setMessage(`✅ 已应用预测结果到"${columnName}"列: ${sourceField} → ${result}`)
-  }, [excelData, selectedPredictionColumn, predictionResults])
+  }, [activeTab, activeTabId, selectedPredictionColumn, predictionResults])
 
   /**
    * 批量应用所有预测结果到源数据表
    * 将所有预测结果回填到对应的单元格
    */
   const handleApplyAll = useCallback(async () => {
-    if (!excelData || selectedPredictionColumn === null || predictionResults.length === 0) return
+    if (!activeTab || selectedPredictionColumn === null || predictionResults.length === 0) return
 
     // 构建源字段到预测结果的映射
     const resultMap = new Map<string, string>()
@@ -507,7 +686,7 @@ function App() {
     })
 
     // 更新所有匹配的行（回填到选中的列）
-    const newRows = excelData.rows.map(row => {
+    const newRows = activeTab.excelData.rows.map(row => {
       const cellValue = String(row[selectedPredictionColumn] || '').trim()
       if (resultMap.has(cellValue)) {
         const newRow = [...row]
@@ -518,8 +697,16 @@ function App() {
       return row
     })
 
-    setExcelData({ ...excelData, rows: newRows })
-    setHasUnsavedChanges(true)
+    setTabs(prev => prev.map(tab => {
+      if (tab.id === activeTabId) {
+        return {
+          ...tab,
+          excelData: { ...tab.excelData, rows: newRows },
+          hasUnsavedChanges: true
+        }
+      }
+      return tab
+    }))
 
     // 批量更新数据库中的用户选择
     const updatePromises = predictionResults.map(async (result, index) => {
@@ -538,9 +725,9 @@ function App() {
 
     await Promise.all(updatePromises)
 
-    const columnName = excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`
+    const columnName = activeTab.excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`
     setMessage(`✅ 已批量应用 ${predictionResults.length} 个预测结果到"${columnName}"列`)
-  }, [excelData, selectedPredictionColumn, predictionResults])
+  }, [activeTab, activeTabId, selectedPredictionColumn, predictionResults])
 
   // ========== 反馈功能 ==========
 
@@ -582,7 +769,7 @@ function App() {
         predictedResult,
         actualContent: finalActualContent,
         isCorrect,
-        fileName: excelData?.fileName || ''
+        fileName: activeTab?.excelData.fileName || ''
       })
       
       // 更新预测结果面板：将反馈内容更新到对应位置，置信度改为100%
@@ -615,7 +802,7 @@ function App() {
     }
     
     setFeedbackModalVisible(false)
-  }, [feedbackModalData, currentBatchId, excelData])
+  }, [feedbackModalData, currentBatchId, activeTab])
 
   /**
    * 关闭反馈弹窗
@@ -723,18 +910,26 @@ function App() {
 
         {/* 右侧：Excel 数据展示区 */}
         <div className="flex-1 bg-white flex flex-col overflow-hidden rounded-lg">
+          {/* Tab栏 */}
+          <ExcelTabs
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onTabSelect={setActiveTabId}
+            onTabClose={handleCloseTab}
+          />
+
           {/* 工具栏 - 保存按钮 */}
           {excelData && (
             <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-gray-50 flex-shrink-0">
-              <button onClick={handleQuickSave} disabled={!hasUnsavedChanges}
+              <button onClick={() => handleQuickSave()} disabled={!hasUnsavedChanges}
                 className="btn-success flex items-center gap-1 text-sm px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
                 <Save className="w-4 h-4" /> 保存 (Ctrl+S)
               </button>
-              <button onClick={handleSave} className="btn-secondary flex items-center gap-1 text-sm px-3 py-1.5">
+              <button onClick={() => handleSave()} className="btn-secondary flex items-center gap-1 text-sm px-3 py-1.5">
                 <Edit3 className="w-4 h-4" /> 另存为...
               </button>
               <span className="text-sm text-gray-500 ml-2">
-                {excelData.fileName} | {excelData.rows.length} 行 × {excelData.headers.length} 列
+                {excelData.fileName} | Sheet: {excelData.sheetName} | {excelData.rows.length} 行 × {excelData.headers.length} 列
               </span>
               {hasUnsavedChanges && (
                 <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded-full font-medium">未保存</span>
@@ -747,10 +942,17 @@ function App() {
             <div className="flex-1 overflow-hidden p-4">
               <DataTable 
                 data={excelData} 
-                selectedColumn={null} 
-                onColumnSelect={() => {}} 
+                selectedColumn={activeTab?.selectedColumn ?? null} 
+                onColumnSelect={(index) => {
+                  setTabs(prev => prev.map(tab => 
+                    tab.id === activeTabId ? { ...tab, selectedColumn: index } : tab
+                  ))
+                }} 
                 onCellEdit={handleCellEdit}
                 onColumnPredict={handleColumnPredict}
+                sheets={activeTab?.sheets}
+                activeSheetIndex={activeTab?.activeSheetIndex}
+                onSheetChange={(sheetIndex) => activeTabId && handleSheetChange(activeTabId, sheetIndex)}
               />
             </div>
           ) : (
@@ -782,8 +984,8 @@ function App() {
         onApplySingle={handleApplySingle}
         onApplyAll={handleApplyAll}
         onFeedback={handleFeedbackClick}
-        columnName={selectedPredictionColumn !== null && excelData 
-          ? (excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`) 
+        columnName={selectedPredictionColumn !== null && activeTab 
+          ? (activeTab.excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`) 
           : ''}
       />
 
@@ -794,6 +996,15 @@ function App() {
         predictedResult={feedbackModalData.predictedResult}
         onSubmit={handleFeedbackSubmit}
         onCancel={handleFeedbackCancel}
+      />
+
+      {/* 关闭Tab确认对话框 */}
+      <CloseTabConfirmDialog
+        visible={closeConfirmVisible}
+        fileName={tabs.find(t => t.id === closeConfirmTabId)?.fileName || ''}
+        onSave={handleCloseConfirmSave}
+        onDiscard={handleCloseConfirmDiscard}
+        onCancel={handleCloseConfirmCancel}
       />
     </div>
   )
