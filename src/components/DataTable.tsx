@@ -1,18 +1,46 @@
-import React, { useState, useRef, useCallback } from 'react'
-import { ArrowUpDown } from 'lucide-react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
+import { ArrowUpDown, Sparkles } from 'lucide-react'
 import { ExcelData } from '../App'
+
+/**
+ * 右键菜单状态接口
+ * @property visible - 菜单是否可见
+ * @property x - 菜单显示位置的 X 坐标
+ * @property y - 菜单显示位置的 Y 坐标
+ * @property columnIndex - 右键点击的列索引
+ */
+interface ContextMenuState {
+  visible: boolean
+  x: number
+  y: number
+  columnIndex: number | null
+}
 
 interface Props {
   data: ExcelData
   selectedColumn: number | null
   onColumnSelect: (index: number) => void
   onCellEdit: (rowIndex: number, colIndex: number, newValue: string) => void
+  /** 列预测回调函数，右键点击"识别此列"时触发 */
+  onColumnPredict?: (columnIndex: number) => void
 }
 
-const DataTable: React.FC<Props> = ({ data, selectedColumn, onColumnSelect, onCellEdit }) => {
+const DataTable: React.FC<Props> = ({ data, selectedColumn, onColumnSelect, onCellEdit, onColumnPredict }) => {
   const [editingCell, setEditingCell] = useState<{row: number; col: number} | null>(null)
   const [editValue, setEditValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * 右键菜单状态
+   * 用于控制右键菜单的显示/隐藏、位置和当前选中的列
+   */
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    columnIndex: null
+  })
 
   // 只显示前 200 行
   const displayRows = data.rows.slice(0, 200)
@@ -50,6 +78,59 @@ const DataTable: React.FC<Props> = ({ data, selectedColumn, onColumnSelect, onCe
     }
   }, [saveEdit, cancelEdit])
 
+  /**
+   * 处理列头右键点击事件
+   * 显示右键菜单并记录点击的列索引
+   * @param e - 鼠标事件对象
+   * @param columnIndex - 被点击的列索引
+   */
+  const handleHeaderContextMenu = useCallback((e: React.MouseEvent, columnIndex: number) => {
+    e.preventDefault()
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      columnIndex
+    })
+  }, [])
+
+  /**
+   * 处理"识别此列"菜单项点击
+   * 调用 onColumnPredict 回调并关闭菜单
+   */
+  const handlePredictColumn = useCallback(() => {
+    if (contextMenu.columnIndex !== null && onColumnPredict) {
+      onColumnPredict(contextMenu.columnIndex)
+    }
+    setContextMenu(prev => ({ ...prev, visible: false }))
+  }, [contextMenu.columnIndex, onColumnPredict])
+
+  /**
+   * 关闭右键菜单
+   */
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(prev => ({ ...prev, visible: false }))
+  }, [])
+
+  /**
+   * 监听点击外部事件，自动关闭右键菜单
+   */
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        closeContextMenu()
+      }
+    }
+
+    if (contextMenu.visible) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [contextMenu.visible, closeContextMenu])
+
   return (
     <div className="table-container max-h-[600px] border border-gray-200 rounded-lg">
       <table className="data-table w-full text-sm">
@@ -59,13 +140,14 @@ const DataTable: React.FC<Props> = ({ data, selectedColumn, onColumnSelect, onCe
               #
             </th>
             {data.headers.map((header, index) => (
-              <th 
+              <th
                 key={index}
                 className={`bg-gray-100 border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors select-none whitespace-nowrap ${
                   selectedColumn === index ? 'bg-blue-100 text-blue-700 border-blue-300' : ''
                 }`}
                 onClick={() => onColumnSelect(index)}
-                title="点击选择此列进行推理"
+                onContextMenu={(e) => handleHeaderContextMenu(e, index)}
+                title="点击选择此列进行推理，右键点击显示更多选项"
               >
                 <div className="flex items-center gap-1">
                   <span>{header || `列 ${index + 1}`}</span>
@@ -128,6 +210,27 @@ const DataTable: React.FC<Props> = ({ data, selectedColumn, onColumnSelect, onCe
       {hasMore && (
         <div className="text-center py-2 text-sm text-gray-500 bg-gray-50 border-t">
           还有 {data.rows.length - 200} 行数据未显示（共 {data.rows.length} 行）
+        </div>
+      )}
+
+      {/* 右键菜单 */}
+      {contextMenu.visible && (
+        <div
+          ref={menuRef}
+          className="fixed z-50 min-w-[140px] bg-white rounded-lg shadow-lg border border-gray-200 py-1 animate-in fade-in zoom-in-95 duration-100"
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y
+          }}
+        >
+          <button
+            onClick={handlePredictColumn}
+            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-2"
+            disabled={!onColumnPredict}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>识别此列</span>
+          </button>
         </div>
       )}
     </div>

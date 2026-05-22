@@ -8,6 +8,7 @@ BERT 缩写识别推理服务
 
 import os
 import sys
+import io
 import json
 import logging
 import itertools
@@ -17,10 +18,17 @@ from flask_cors import CORS
 import torch
 from transformers import BertTokenizer, BertForTokenClassification
 
+# 设置 stdout/stderr 编码为 utf-8，解决 Windows 终端中文乱码问题
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -262,18 +270,25 @@ class BERTModel:
         for i, text in enumerate(texts):
             result = self.predict_single(text, k=k)
 
-            yield f"event: progress\n"
+            # 使用前端期望的格式: {"type": "progress", "data": {...}}
             data = {
-                'index': i,
-                'total': total,
-                'abbr': text,
-                'result': result,
-                'progress': round((i + 1) / total * 100, 2)
+                'type': 'progress',
+                'data': {
+                    'index': i,
+                    'total': total,
+                    'abbr': text,
+                    'result': result,
+                    'progress': round((i + 1) / total * 100, 2)
+                }
             }
             yield f"data: {json.dumps(data)}\n\n"
 
-        yield f"event: complete\n"
-        yield f"data: {json.dumps({'success': True, 'count': total})}\n\n"
+        # 完成事件
+        complete_data = {
+            'type': 'complete',
+            'data': {'success': True, 'count': total}
+        }
+        yield f"data: {json.dumps(complete_data)}\n\n"
 
     def _format_result(self, text: str, candidates: List[Tuple[str, float]]) -> Dict[str, Any]:
         """

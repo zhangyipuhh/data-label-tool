@@ -5,11 +5,22 @@ import Database from 'better-sqlite3'
 import { spawn, ChildProcess } from 'child_process'
 import fs from 'fs'
 import net from 'net'
+import {
+  createEncryptedDb,
+  openEncryptedDb,
+  isDebugMode,
+  getDbEncryption
+} from './db-encryption'
 
 let mainWindow: BrowserWindow | null = null
 let pythonProcess: ChildProcess | null = null
 let db: Database.Database | null = null
+let predictionDb: Database.Database | null = null
+let feedbackDb: Database.Database | null = null
 let pythonServicePort: number = 5000
+
+// 数据目录路径
+const DATA_DIR = 'e:\\laboratory\\AI\\Fine-tuning\\data-label-tool\\data'
 
 /**
  * 文件树节点接口
@@ -87,9 +98,80 @@ function getPythonServicePath(): string {
   return path.join(process.resourcesPath, 'python_service')
 }
 
+/**
+ * 初始化反馈数据库（加密）
+ * 使用 SQLCipher 加密保护数据安全
+ * @returns void
+ * @throws 数据库连接或表创建失败时抛出错误
+ */
 function initDatabase() {
   const dbPath = path.join(app.getPath('userData'), 'feedback.db')
-  db = new Database(dbPath)
+
+  // 检查是否存在旧版本未加密数据库，需要迁移
+  const legacyDbPath = dbPath + '.legacy'
+  if (fs.existsSync(dbPath) && !isDebugMode()) {
+    // 尝试打开，如果失败可能是加密数据库
+    try {
+      const testDb = new Database(dbPath, { readonly: true })
+      testDb.prepare('SELECT 1').get()
+      testDb.close()
+
+      // 如果是明文数据库，迁移到加密数据库
+      console.log('[DB] 发现明文数据库，正在迁移到加密数据库...')
+      fs.renameSync(dbPath, legacyDbPath)
+
+      // 创建新的加密数据库
+      db = createEncryptedDb(dbPath)
+      if (!db) {
+        throw new Error('创建加密数据库失败')
+      }
+
+      // 从旧数据库导入数据
+      const legacyDb = new Database(legacyDbPath, { readonly: true })
+      const tables = legacyDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
+
+      for (const table of tables) {
+        const tableName = (table as any).name
+        if (tableName === 'sqlite_sequence') continue
+
+        const createSql = legacyDb.prepare(`SELECT sql FROM sqlite_master WHERE name = ?`).get(tableName) as any
+        if (createSql && createSql.sql) {
+          db.exec(createSql.sql)
+
+          const rows = legacyDb.prepare(`SELECT * FROM "${tableName}"`).all()
+          if (rows.length > 0) {
+            const columns = Object.keys(rows[0] as Record<string, unknown>)
+            const placeholders = columns.map(() => '?').join(',')
+            const insertStmt = db.prepare(`INSERT INTO "${tableName}" (${columns.join(',')}) VALUES (${placeholders})`)
+
+            for (const row of rows) {
+              insertStmt.run(...columns.map(col => (row as Record<string, unknown>)[col]))
+            }
+          }
+        }
+      }
+
+      legacyDb.close()
+      fs.unlinkSync(legacyDbPath)
+      console.log('[DB] 数据库迁移完成')
+    } catch (error) {
+      // 可能是加密数据库，尝试用密钥打开
+      db = openEncryptedDb(dbPath)
+      if (!db) {
+        console.error('[DB] 无法打开数据库，可能是密钥错误')
+        // 创建新的加密数据库
+        db = createEncryptedDb(dbPath)
+      }
+    }
+  } else {
+    // 创建新的加密数据库
+    db = createEncryptedDb(dbPath)
+  }
+
+  if (!db) {
+    console.error('[DB] 数据库初始化失败')
+    return
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS feedback (
@@ -106,7 +188,198 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at);
     CREATE INDEX IF NOT EXISTS idx_feedback_file ON feedback(file_name);
   `)
-  console.log('数据库已初始化:', dbPath)
+  console.log('加密数据库已初始化:', dbPath)
+}
+
+/**
+ * 确保数据目录存在
+ * 如果目录不存在则创建
+ * @throws 创建目录失败时抛出错误
+ */
+function ensureDataDir(): void {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    console.log('数据目录已创建:', DATA_DIR)
+  }
+}
+
+/**
+ * 初始化预测数据库（加密）
+ * 创建 prediction_records 表和相关索引
+ * @returns void
+ * @throws 数据库连接或表创建失败时抛出错误
+ */
+function initPredictionDatabase(): void {
+  const dbPath = path.join(DATA_DIR, 'predictions.db')
+
+  // 检查是否存在旧版本未加密数据库，需要迁移
+  const legacyDbPath = dbPath + '.legacy'
+  if (fs.existsSync(dbPath) && !isDebugMode()) {
+    try {
+      const testDb = new Database(dbPath, { readonly: true })
+      testDb.prepare('SELECT 1').get()
+      testDb.close()
+
+      // 如果是明文数据库，迁移到加密数据库
+      console.log('[DB] 发现明文预测数据库，正在迁移到加密数据库...')
+      fs.renameSync(dbPath, legacyDbPath)
+
+      predictionDb = createEncryptedDb(dbPath)
+      if (!predictionDb) {
+        throw new Error('创建加密预测数据库失败')
+      }
+
+      // 从旧数据库导入数据
+      const legacyDb = new Database(legacyDbPath, { readonly: true })
+      const tables = legacyDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
+
+      for (const table of tables) {
+        const tableName = (table as any).name
+        if (tableName === 'sqlite_sequence') continue
+
+        const createSql = legacyDb.prepare(`SELECT sql FROM sqlite_master WHERE name = ?`).get(tableName) as any
+        if (createSql && createSql.sql) {
+          predictionDb.exec(createSql.sql)
+
+          const rows = legacyDb.prepare(`SELECT * FROM "${tableName}"`).all()
+          if (rows.length > 0) {
+            const columns = Object.keys(rows[0] as Record<string, unknown>)
+            const placeholders = columns.map(() => '?').join(',')
+            const insertStmt = predictionDb.prepare(`INSERT INTO "${tableName}" (${columns.join(',')}) VALUES (${placeholders})`)
+
+            for (const row of rows) {
+              insertStmt.run(...columns.map(col => (row as Record<string, unknown>)[col]))
+            }
+          }
+        }
+      }
+
+      legacyDb.close()
+      fs.unlinkSync(legacyDbPath)
+      console.log('[DB] 预测数据库迁移完成')
+    } catch (error) {
+      predictionDb = openEncryptedDb(dbPath)
+      if (!predictionDb) {
+        console.error('[DB] 无法打开预测数据库，可能是密钥错误')
+        predictionDb = createEncryptedDb(dbPath)
+      }
+    }
+  } else {
+    predictionDb = createEncryptedDb(dbPath)
+  }
+
+  if (!predictionDb) {
+    console.error('[DB] 预测数据库初始化失败')
+    return
+  }
+
+  predictionDb.exec(`
+    CREATE TABLE IF NOT EXISTS prediction_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_id TEXT NOT NULL,
+      source_field TEXT NOT NULL,
+      predicted_result TEXT,
+      user_selected_result TEXT,
+      confidence REAL,
+      column_name TEXT,
+      file_name TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_prediction_batch_id ON prediction_records(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_prediction_created_at ON prediction_records(created_at);
+    CREATE INDEX IF NOT EXISTS idx_prediction_file_name ON prediction_records(file_name);
+  `)
+  console.log('加密预测数据库已初始化:', dbPath)
+}
+
+/**
+ * 初始化反馈记录数据库（加密）
+ * 创建 feedback_records 表和相关索引
+ * @returns void
+ * @throws 数据库连接或表创建失败时抛出错误
+ */
+function initFeedbackDatabase(): void {
+  const dbPath = path.join(DATA_DIR, 'feedback.db')
+
+  // 检查是否存在旧版本未加密数据库，需要迁移
+  const legacyDbPath = dbPath + '.legacy'
+  if (fs.existsSync(dbPath) && !isDebugMode()) {
+    try {
+      const testDb = new Database(dbPath, { readonly: true })
+      testDb.prepare('SELECT 1').get()
+      testDb.close()
+
+      // 如果是明文数据库，迁移到加密数据库
+      console.log('[DB] 发现明文反馈数据库，正在迁移到加密数据库...')
+      fs.renameSync(dbPath, legacyDbPath)
+
+      feedbackDb = createEncryptedDb(dbPath)
+      if (!feedbackDb) {
+        throw new Error('创建加密反馈数据库失败')
+      }
+
+      // 从旧数据库导入数据
+      const legacyDb = new Database(legacyDbPath, { readonly: true })
+      const tables = legacyDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
+
+      for (const table of tables) {
+        const tableName = (table as any).name
+        if (tableName === 'sqlite_sequence') continue
+
+        const createSql = legacyDb.prepare(`SELECT sql FROM sqlite_master WHERE name = ?`).get(tableName) as any
+        if (createSql && createSql.sql) {
+          feedbackDb.exec(createSql.sql)
+
+          const rows = legacyDb.prepare(`SELECT * FROM "${tableName}"`).all()
+          if (rows.length > 0) {
+            const columns = Object.keys(rows[0] as Record<string, unknown>)
+            const placeholders = columns.map(() => '?').join(',')
+            const insertStmt = feedbackDb.prepare(`INSERT INTO "${tableName}" (${columns.join(',')}) VALUES (${placeholders})`)
+
+            for (const row of rows) {
+              insertStmt.run(...columns.map(col => (row as Record<string, unknown>)[col]))
+            }
+          }
+        }
+      }
+
+      legacyDb.close()
+      fs.unlinkSync(legacyDbPath)
+      console.log('[DB] 反馈数据库迁移完成')
+    } catch (error) {
+      feedbackDb = openEncryptedDb(dbPath)
+      if (!feedbackDb) {
+        console.error('[DB] 无法打开反馈数据库，可能是密钥错误')
+        feedbackDb = createEncryptedDb(dbPath)
+      }
+    }
+  } else {
+    feedbackDb = createEncryptedDb(dbPath)
+  }
+
+  if (!feedbackDb) {
+    console.error('[DB] 反馈数据库初始化失败')
+    return
+  }
+
+  feedbackDb.exec(`
+    CREATE TABLE IF NOT EXISTS feedback_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prediction_id INTEGER,
+      batch_id TEXT NOT NULL,
+      source_field TEXT NOT NULL,
+      predicted_result TEXT,
+      actual_content TEXT,
+      is_correct INTEGER DEFAULT 0,
+      file_name TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_feedback_prediction_id ON feedback_records(prediction_id);
+    CREATE INDEX IF NOT EXISTS idx_feedback_batch_id ON feedback_records(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_feedback_file_name ON feedback_records(file_name);
+  `)
+  console.log('加密反馈数据库已初始化:', dbPath)
 }
 
 function findAvailablePort(startPort: number, endPort: number): Promise<number> {
@@ -444,10 +717,506 @@ ipcMain.handle('read-directory-tree', async (_, folderPath: string) => {
   }
 })
 
+// ========== 流式预测相关 IPC 处理器 ==========
+
+/**
+ * 流式预测接口参数
+ * @property data - 待预测的文本数组
+ * @property k - 返回的候选结果数量，默认为 3
+ */
+interface PredictStreamParams {
+  data: string[]
+  k?: number
+}
+
+/**
+ * 流式预测进度数据
+ * @property index - 当前处理的索引
+ * @property total - 总数据量
+ * @property abbr - 原始输入值（单元格内容）
+ * @property result - 当前预测结果
+ */
+interface PredictProgressData {
+  index: number
+  total: number
+  abbr: string
+  result: {
+    content: string
+    confidence: number
+    alternatives?: Array<{ content: string; confidence: number }>
+  }
+}
+
+/**
+ * 流式预测完成数据
+ * @property results - 所有预测结果数组
+ * @property total - 总数据量
+ * @property duration - 处理耗时（毫秒）
+ */
+interface PredictCompleteData {
+  results: PredictProgressData['result'][]
+  total: number
+  duration: number
+}
+
+// 11. 流式预测 - 使用 SSE 接收流式响应
+ipcMain.handle('predict-stream', async (event, params: PredictStreamParams) => {
+  try {
+    const { data, k = 3 } = params
+    
+    // 发起 SSE 请求到 Python 服务
+    const response = await fetch(`http://localhost:${pythonServicePort}/predict_stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data, k })
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    // 获取响应体读取器
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('无法获取响应流读取器')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    const results: PredictProgressData['result'][] = []
+    const startTime = Date.now()
+
+    // 循环读取流数据
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || '' // 保留不完整的行到下一次处理
+
+      for (const line of lines) {
+        const trimmedLine = line.trim()
+        if (!trimmedLine) continue
+
+        // 解析 SSE 数据行 (格式: data: {...})
+        if (trimmedLine.startsWith('data:')) {
+          const jsonStr = trimmedLine.substring(5).trim()
+          try {
+            const sseData = JSON.parse(jsonStr)
+
+            // 处理进度事件
+            if (sseData.type === 'progress' && sseData.data) {
+              const progressData: PredictProgressData = {
+                index: sseData.data.index,
+                total: sseData.data.total,
+                abbr: sseData.data.abbr || '',
+                result: {
+                  content: sseData.data.result?.content || '',
+                  confidence: sseData.data.result?.confidence || 0,
+                  alternatives: sseData.data.result?.alternatives || []
+                }
+              }
+              results.push(progressData.result)
+
+              // 发送进度事件到渲染进程
+              event.sender.send('predict-progress', progressData)
+            }
+
+            // 处理完成事件
+            if (sseData.type === 'complete') {
+              const completeData: PredictCompleteData = {
+                results: results,
+                total: results.length,
+                duration: Date.now() - startTime
+              }
+              
+              // 发送完成事件到渲染进程
+              event.sender.send('predict-complete', completeData)
+              return { success: true }
+            }
+
+            // 处理错误事件
+            if (sseData.type === 'error') {
+              throw new Error(sseData.message || '流式预测过程中发生错误')
+            }
+          } catch (parseError) {
+            console.error('解析 SSE 数据失败:', parseError, '原始数据:', jsonStr)
+          }
+        }
+      }
+    }
+
+    // 流结束但没有收到 complete 事件，手动发送完成
+    const completeData: PredictCompleteData = {
+      results: results,
+      total: results.length,
+      duration: Date.now() - startTime
+    }
+    event.sender.send('predict-complete', completeData)
+    return { success: true }
+
+  } catch (error) {
+    console.error('流式预测失败:', error)
+    // 发送错误事件到渲染进程
+    event.sender.send('predict-error', { message: `${error}` })
+    return { success: false, message: `${error}` }
+  }
+})
+
+/**
+ * 预测记录参数
+ * @property batchId - 批次ID
+ * @property sourceField - 源字段内容
+ * @property predictedResult - 预测结果
+ * @property confidence - 置信度
+ * @property columnName - 列名
+ * @property fileName - 文件名
+ */
+interface PredictionRecordParams {
+  batchId: string
+  sourceField: string
+  predictedResult: string
+  confidence: number
+  columnName: string
+  fileName: string
+}
+
+// 12. 保存预测记录
+ipcMain.handle('save-prediction-record', async (_, record: PredictionRecordParams) => {
+  try {
+    if (!predictionDb) {
+      throw new Error('预测数据库未初始化')
+    }
+
+    const stmt = predictionDb.prepare(`
+      INSERT INTO prediction_records 
+      (batch_id, source_field, predicted_result, confidence, column_name, file_name)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+
+    const result = stmt.run(
+      record.batchId,
+      record.sourceField,
+      record.predictedResult,
+      record.confidence,
+      record.columnName,
+      record.fileName
+    )
+
+    return { 
+      success: true, 
+      id: result.lastInsertRowid,
+      message: '预测记录保存成功'
+    }
+  } catch (error) {
+    console.error('保存预测记录失败:', error)
+    return { 
+      success: false, 
+      message: `保存预测记录失败: ${error}` 
+    }
+  }
+})
+
+/**
+ * 用户选择更新参数
+ * @property id - 记录ID
+ * @property userSelectedResult - 用户选择的结果
+ */
+interface UpdateUserSelectionParams {
+  id: number
+  userSelectedResult: string
+}
+
+// 13. 更新用户选择
+ipcMain.handle('update-user-selection', async (_, params: UpdateUserSelectionParams) => {
+  try {
+    if (!predictionDb) {
+      throw new Error('预测数据库未初始化')
+    }
+
+    const stmt = predictionDb.prepare(`
+      UPDATE prediction_records 
+      SET user_selected_result = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `)
+
+    const result = stmt.run(params.userSelectedResult, params.id)
+
+    if (result.changes === 0) {
+      return { 
+        success: false, 
+        message: '未找到指定的预测记录' 
+      }
+    }
+
+    return { 
+      success: true, 
+      message: '用户选择更新成功' 
+    }
+  } catch (error) {
+    console.error('更新用户选择失败:', error)
+    return { 
+      success: false, 
+      message: `更新用户选择失败: ${error}` 
+    }
+  }
+})
+
+/**
+ * 反馈记录参数
+ * @property predictionId - 关联的预测记录ID
+ * @property batchId - 批次ID
+ * @property sourceField - 源字段内容
+ * @property predictedResult - 预测结果
+ * @property actualContent - 实际内容（用户确认的正确内容）
+ * @property isCorrect - 预测是否正确
+ * @property fileName - 文件名
+ */
+interface FeedbackRecordParams {
+  predictionId?: number
+  batchId: string
+  sourceField: string
+  predictedResult: string
+  actualContent: string
+  isCorrect: boolean
+  fileName: string
+}
+
+// 14. 保存反馈记录
+ipcMain.handle('save-feedback-record', async (_, record: FeedbackRecordParams) => {
+  try {
+    if (!feedbackDb) {
+      throw new Error('反馈数据库未初始化')
+    }
+
+    const stmt = feedbackDb.prepare(`
+      INSERT INTO feedback_records 
+      (prediction_id, batch_id, source_field, predicted_result, actual_content, is_correct, file_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const result = stmt.run(
+      record.predictionId || null,
+      record.batchId,
+      record.sourceField,
+      record.predictedResult,
+      record.actualContent,
+      record.isCorrect ? 1 : 0,
+      record.fileName
+    )
+
+    return { 
+      success: true, 
+      id: result.lastInsertRowid,
+      message: '反馈记录保存成功'
+    }
+  } catch (error) {
+    console.error('保存反馈记录失败:', error)
+    return { 
+      success: false, 
+      message: `保存反馈记录失败: ${error}` 
+    }
+  }
+})
+
+/**
+ * 获取预测记录参数
+ * @property batchId - 可选的批次ID过滤条件
+ */
+interface GetPredictionRecordsParams {
+  batchId?: string
+}
+
+// 15. 获取预测记录
+ipcMain.handle('get-prediction-records', async (_, params: GetPredictionRecordsParams = {}) => {
+  try {
+    if (!predictionDb) {
+      throw new Error('预测数据库未初始化')
+    }
+
+    let query = 'SELECT * FROM prediction_records'
+    let countQuery = 'SELECT COUNT(*) as total FROM prediction_records'
+    const queryParams: any[] = []
+
+    // 如果指定了 batchId，添加过滤条件
+    if (params.batchId) {
+      query += ' WHERE batch_id = ?'
+      countQuery += ' WHERE batch_id = ?'
+      queryParams.push(params.batchId)
+    }
+
+    query += ' ORDER BY created_at DESC'
+
+    // 获取总记录数
+    const countResult = predictionDb.prepare(countQuery).get(...queryParams) as { total: number }
+
+    // 获取记录列表
+    const records = predictionDb.prepare(query).all(...queryParams)
+
+    return {
+      success: true,
+      records: records,
+      total: countResult.total,
+      message: '获取预测记录成功'
+    }
+  } catch (error) {
+    console.error('获取预测记录失败:', error)
+    return {
+      success: false,
+      message: `获取预测记录失败: ${error}`
+    }
+  }
+})
+
+// ========== 数据库加密相关 IPC 处理器 ==========
+
+/**
+ * 数据库加密状态接口
+ * @property isDebugMode - 是否为调试模式
+ * @property isEncrypted - 数据库是否已加密
+ * @property hasKey - 是否有可用的加密密钥
+ */
+interface EncryptionStatus {
+  isDebugMode: boolean
+  isEncrypted: boolean
+  hasKey: boolean
+}
+
+// 16. 获取数据库加密状态
+ipcMain.handle('get-encryption-status', async (): Promise<{ success: boolean; status?: EncryptionStatus; message?: string }> => {
+  try {
+    const encryption = getDbEncryption()
+    const debugMode = encryption.checkDebugMode()
+    const key = encryption.getEncryptionKey()
+
+    // 检查数据库文件是否加密
+    let isEncrypted = false
+    const dbPaths = [
+      path.join(app.getPath('userData'), 'feedback.db'),
+      path.join(DATA_DIR, 'predictions.db'),
+      path.join(DATA_DIR, 'feedback.db')
+    ]
+
+    for (const dbPath of dbPaths) {
+      if (fs.existsSync(dbPath)) {
+        try {
+          const testDb = new Database(dbPath, { readonly: true })
+          testDb.prepare('SELECT 1').get()
+          testDb.close()
+          // 如果能直接打开，说明是明文数据库
+          isEncrypted = false
+          break
+        } catch {
+          // 如果无法直接打开，可能是加密的
+          isEncrypted = true
+          break
+        }
+      }
+    }
+
+    return {
+      success: true,
+      status: {
+        isDebugMode: debugMode,
+        isEncrypted: isEncrypted,
+        hasKey: key !== null
+      }
+    }
+  } catch (error) {
+    console.error('获取加密状态失败:', error)
+    return {
+      success: false,
+      message: `获取加密状态失败: ${error}`
+    }
+  }
+})
+
+/**
+ * 解密数据库参数
+ * @property outputPath - 解密后的数据库输出路径
+ */
+interface DecryptDatabaseParams {
+  outputPath: string
+}
+
+// 17. 解密数据库（仅调试模式可用）
+ipcMain.handle('decrypt-database', async (_, params: DecryptDatabaseParams): Promise<{ success: boolean; message?: string; outputPath?: string }> => {
+  try {
+    const encryption = getDbEncryption()
+
+    if (!encryption.checkDebugMode()) {
+      return {
+        success: false,
+        message: '非调试模式无法解密数据库'
+      }
+    }
+
+    const dbPath = path.join(DATA_DIR, 'predictions.db')
+    if (!fs.existsSync(dbPath)) {
+      return {
+        success: false,
+        message: '数据库文件不存在'
+      }
+    }
+
+    const success = encryption.decryptDatabase(dbPath, params.outputPath)
+    if (success) {
+      return {
+        success: true,
+        message: '数据库解密成功',
+        outputPath: params.outputPath
+      }
+    } else {
+      return {
+        success: false,
+        message: '数据库解密失败'
+      }
+    }
+  } catch (error) {
+    console.error('解密数据库失败:', error)
+    return {
+      success: false,
+      message: `解密数据库失败: ${error}`
+    }
+  }
+})
+
+// 18. 生成新的加密密钥（仅调试模式可用）
+ipcMain.handle('generate-encryption-key', async (): Promise<{ success: boolean; key?: string; message?: string }> => {
+  try {
+    const encryption = getDbEncryption()
+
+    if (!encryption.checkDebugMode()) {
+      return {
+        success: false,
+        message: '非调试模式无法生成密钥'
+      }
+    }
+
+    const newKey = encryption.generateRandomKey()
+    return {
+      success: true,
+      key: newKey,
+      message: '新密钥生成成功'
+    }
+  } catch (error) {
+    console.error('生成密钥失败:', error)
+    return {
+      success: false,
+      message: `生成密钥失败: ${error}`
+    }
+  }
+})
+
 // ========== 应用生命周期 ==========
 
 app.whenReady().then(async () => {
   initDatabase()
+  // 确保数据目录存在并初始化新的数据库
+  ensureDataDir()
+  initPredictionDatabase()
+  initFeedbackDatabase()
   await startPythonService()
   createWindow()
 
@@ -459,10 +1228,14 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   if (pythonProcess) { pythonProcess.kill(); pythonProcess = null }
   if (db) { db.close(); db = null }
+  if (predictionDb) { predictionDb.close(); predictionDb = null }
+  if (feedbackDb) { feedbackDb.close(); feedbackDb = null }
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
   if (pythonProcess) pythonProcess.kill()
   if (db) db.close()
+  if (predictionDb) predictionDb.close()
+  if (feedbackDb) feedbackDb.close()
 })
