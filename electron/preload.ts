@@ -108,6 +108,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 文件操作
   selectExcelFile: () => ipcRenderer.invoke('select-excel-file'),
   readExcel: (filePath: string) => ipcRenderer.invoke('read-excel', filePath),
+  readExcelSheet: (filePath: string, sheetIndex: number) => ipcRenderer.invoke('read-excel-sheet', filePath, sheetIndex),
   saveExcel: (params: {
     filePath: string
     headers: string[]

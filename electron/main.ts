@@ -515,8 +515,9 @@ ipcMain.handle('read-excel', async (_, filePath: string) => {
     // 原因：Vite 打包时将 xlsx 内联，导致 xlsx 内部的 _fs (require('fs')) 被移除
     const buffer = fs.readFileSync(filePath)
     const workbook = XLSX.read(buffer, { type: 'buffer' })
-    const sheetName = workbook.SheetNames[0]
-    const worksheet = workbook.Sheets[sheetName]
+    const sheetNames = workbook.SheetNames  // 获取所有Sheet名称
+    const firstSheetName = sheetNames[0]
+    const worksheet = workbook.Sheets[firstSheetName]
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
 
     if (jsonData.length === 0) {
@@ -527,11 +528,43 @@ ipcMain.handle('read-excel', async (_, filePath: string) => {
       success: true,
       headers: jsonData[0] as string[],
       rows: jsonData.slice(1),
-      sheetName,
+      sheetName: firstSheetName,
+      sheetIndex: 0,
+      sheetNames,        // 返回所有Sheet名称
       fileName: path.basename(filePath)
     }
   } catch (error) {
     return { success: false, message: `读取失败: ${error}` }
+  }
+})
+
+// 新增：按Sheet索引读取指定Sheet
+ipcMain.handle('read-excel-sheet', async (_, filePath: string, sheetIndex: number) => {
+  try {
+    const buffer = fs.readFileSync(filePath)
+    const workbook = XLSX.read(buffer, { type: 'buffer' })
+    
+    if (sheetIndex < 0 || sheetIndex >= workbook.SheetNames.length) {
+      return { success: false, message: 'Sheet索引超出范围' }
+    }
+    
+    const sheetName = workbook.SheetNames[sheetIndex]
+    const worksheet = workbook.Sheets[sheetName]
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
+
+    if (jsonData.length === 0) {
+      return { success: false, message: 'Sheet 为空' }
+    }
+
+    return {
+      success: true,
+      headers: jsonData[0] as string[],
+      rows: jsonData.slice(1),
+      sheetName,
+      sheetIndex
+    }
+  } catch (error) {
+    return { success: false, message: `读取Sheet失败: ${error}` }
   }
 })
 
