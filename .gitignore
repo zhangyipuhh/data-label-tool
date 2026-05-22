@@ -3,16 +3,16 @@ node_modules/
 python_service/__pycache__/
 python_service/*.pyc
 python_service/.env
-
+![1779425073312](image/.gitignore/1779425073312.png)models/
 # 构建输出
 dist/
 dist-electron/
 release/
-
+/.trae/
 # 数据库
 *.db
 *.db-journal
-
+/tests/
 # 日志
 *.log
 logs/
@@ -31,3 +31,12 @@ logs/
 .DS_Store
 Thumbs.db
 AGENTS.md
+.debug_mode
+docs/DB_ENCRYPTION.md
+image/.gitignore/1779425073312.png
+models/abbr_mapper_nar/added_tokens.json
+models/abbr_mapper_nar/config.json
+models/abbr_mapper_nar/model.safetensors
+models/abbr_mapper_nar/special_tokens_map.json
+models/abbr_mapper_nar/tokenizer_config.json
+models/abbr_mapper_nar/vocab.txt
