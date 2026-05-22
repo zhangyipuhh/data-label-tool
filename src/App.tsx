@@ -667,10 +667,10 @@ function App() {
         </div>
 
         {/* 右侧：Excel 数据展示区 */}
-        <div className="flex-[3] bg-white overflow-auto">
+        <div className="flex-[3] bg-white flex flex-col overflow-hidden">
           {/* 工具栏 - 保存按钮 */}
           {excelData && (
-            <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-gray-50">
+            <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-gray-50 flex-shrink-0">
               <button onClick={handleQuickSave} disabled={!hasUnsavedChanges}
                 className="btn-success flex items-center gap-1 text-sm px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
                 <Save className="w-4 h-4" /> 保存 (Ctrl+S)
@@ -689,7 +689,7 @@ function App() {
 
           {/* 数据表格或空状态 */}
           {excelData ? (
-            <div className="p-4">
+            <div className="flex-1 overflow-hidden p-4">
               <DataTable 
                 data={excelData} 
                 selectedColumn={null} 

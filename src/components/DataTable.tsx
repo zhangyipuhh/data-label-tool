@@ -132,7 +132,7 @@ const DataTable: React.FC<Props> = ({ data, selectedColumn, onColumnSelect, onCe
   }, [contextMenu.visible, closeContextMenu])
 
   return (
-    <div className="table-container max-h-[600px] border border-gray-200 rounded-lg">
+    <div className="table-container h-full border border-gray-200 rounded-lg">
       <table className="data-table w-full text-sm">
         <thead className="sticky top-0 z-10">
           <tr>
