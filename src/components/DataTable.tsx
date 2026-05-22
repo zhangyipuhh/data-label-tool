@@ -186,7 +186,7 @@ const DataTable: React.FC<Props> = ({
               </td>
               {data.headers.map((_, colIndex) => {
                 const isEditing = editingCell?.row === rowIndex && editingCell?.col === colIndex
-                const cellValue = String(row[colIndex] || '')
+                const cellValue = String(row[colIndex] ?? '')
                 const isSelectedCol = selectedColumn === colIndex
 
                 return (

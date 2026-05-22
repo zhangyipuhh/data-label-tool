@@ -225,6 +225,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('folder-opened', (_, data) => callback(data))
     }
   },
+  offFolderOpened: () => {
+    eventListenersRegistered.folderOpened = false
+    ipcRenderer.removeAllListeners('folder-opened')
+  },
 
   /**
    * 监听流式预测进度事件
@@ -236,6 +240,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       eventListenersRegistered.predictProgress = true
       ipcRenderer.on('predict-progress', (_, data) => callback(data))
     }
+  },
+  offPredictProgress: () => {
+    eventListenersRegistered.predictProgress = false
+    ipcRenderer.removeAllListeners('predict-progress')
   },
 
   /**
@@ -249,6 +257,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('predict-complete', (_, data) => callback(data))
     }
   },
+  offPredictComplete: () => {
+    eventListenersRegistered.predictComplete = false
+    ipcRenderer.removeAllListeners('predict-complete')
+  },
 
   /**
    * 监听流式预测错误事件
@@ -260,5 +272,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       eventListenersRegistered.predictError = true
       ipcRenderer.on('predict-error', (_, data) => callback(data))
     }
+  },
+  offPredictError: () => {
+    eventListenersRegistered.predictError = false
+    ipcRenderer.removeAllListeners('predict-error')
   }
 })

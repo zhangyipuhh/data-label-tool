@@ -265,6 +265,9 @@ interface ElectronAPI {
    * @param callback - 错误回调函数
    */
   onPredictError: (callback: (error: { message: string }) => void) => void
+  offPredictProgress: () => void
+  offPredictComplete: () => void
+  offPredictError: () => void
 
   // ========== 预测记录 ==========
 
@@ -410,6 +413,7 @@ interface ElectronAPI {
     folderPath: string
     tree: FileTreeNode[]
   }) => void) => void
+  offFolderOpened: () => void
 }
 
 declare global {

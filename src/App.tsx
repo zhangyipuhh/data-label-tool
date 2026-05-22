@@ -40,10 +40,20 @@ interface PredictionRecordMap {
   [index: number]: number
 }
 
-/** 检测是否在 Electron 环境中运行 */
-const isElectron = (): boolean => !!window.electronAPI
+  /** 检测是否在 Electron 环境中运行 */
+  const isElectron = (): boolean => !!window.electronAPI
 
-function App() {
+  /**
+   * 格式化错误信息
+   * 将 Error 对象转换为字符串，避免显示 [object Object]
+   * @param error - 错误对象或字符串
+   * @returns 格式化后的错误信息字符串
+   */
+  const formatError = (error: unknown): string => {
+    return error instanceof Error ? error.message : String(error)
+  }
+
+  function App() {
   /** Tab列表，最多5个 */
   const [tabs, setTabs] = useState<ExcelTab[]>([])
   /** 当前激活的Tab ID */
@@ -174,7 +184,8 @@ function App() {
         setMessage(`❌ 读取目录失败: ${treeResult.message}`)
       }
     } catch (error) {
-      setMessage(`❌ 错误: ${error}`)
+      const errorMessage = formatError(error)
+      setMessage(`❌ 错误: ${errorMessage}`)
     }
   }, [])
 
@@ -234,7 +245,8 @@ function App() {
       setActiveTabId(newTab.id)
       setMessage(`✅ 成功加载: ${readResult.fileName} (${readResult.rows.length} 行 × ${readResult.headers.length} 列)`)
     } catch (error) {
-      setMessage(`❌ 错误: ${error}`)
+      const errorMessage = formatError(error)
+      setMessage(`❌ 错误: ${errorMessage}`)
     }
   }, [tabs])
 
@@ -273,7 +285,8 @@ function App() {
         return t
       }))
     } catch (error) {
-      setMessage(`❌ 切换Sheet错误: ${error}`)
+      const errorMessage = formatError(error)
+      setMessage(`❌ 切换Sheet错误: ${errorMessage}`)
     }
   }, [tabs])
 
@@ -316,14 +329,34 @@ function App() {
 
   /**
    * 确认关闭Tab并保存
+   * 保存成功后才会关闭Tab，保存失败则保持Tab打开并显示错误信息
    */
   const handleCloseConfirmSave = useCallback(async () => {
     if (!closeConfirmTabId) return
-    // 先保存
-    await handleQuickSave(closeConfirmTabId)
-    // 再关闭
-    closeTab(closeConfirmTabId)
-  }, [closeConfirmTabId])
+    const tab = tabs.find(t => t.id === closeConfirmTabId)
+    if (!tab) return
+
+    try {
+      const result = await window.electronAPI.saveExcel({
+        filePath: tab.filePath,
+        headers: tab.excelData.headers,
+        rows: tab.excelData.rows,
+        mode: 'overwrite'
+      })
+
+      if (result.success) {
+        setTabs(prev => prev.map(t =>
+          t.id === closeConfirmTabId ? { ...t, hasUnsavedChanges: false } : t
+        ))
+        closeTab(closeConfirmTabId)
+      } else {
+        setMessage(`❌ 保存失败: ${result.message}`)
+      }
+    } catch (error) {
+      const errorMessage = formatError(error)
+      setMessage(`❌ 保存错误: ${errorMessage}`)
+    }
+  }, [closeConfirmTabId, tabs])
 
   /**
    * 确认关闭Tab但不保存
@@ -351,7 +384,7 @@ function App() {
   const handleCellEdit = useCallback((rowIndex: number, colIndex: number, newValue: string) => {
     if (!activeTab || !activeTabId) return
 
-    const oldValue = String(activeTab.excelData.rows[rowIndex]?.[colIndex] || '')
+    const oldValue = String(activeTab.excelData.rows[rowIndex]?.[colIndex] ?? '')
     if (oldValue === newValue) return
 
     const newRows = activeTab.excelData.rows.map((row, rIdx) => {
@@ -419,7 +452,8 @@ function App() {
         setMessage(`❌ 保存失败: ${result.message}`)
       }
     } catch (error) {
-      setMessage(`❌ 保存错误: ${error}`)
+      const errorMessage = formatError(error)
+      setMessage(`❌ 保存错误: ${errorMessage}`)
     }
   }, [activeTabId, tabs])
 
@@ -457,7 +491,8 @@ function App() {
         setMessage(`❌ 保存失败: ${result.message}`)
       }
     } catch (error) {
-      setMessage(`❌ 保存错误: ${error}`)
+      const errorMessage = formatError(error)
+      setMessage(`❌ 保存错误: ${errorMessage}`)
     }
   }, [activeTabId, tabs])
 
@@ -484,7 +519,7 @@ function App() {
       const uniqueValues = new Set<string>()
       
       activeTab.excelData.rows.forEach(row => {
-        const value = String(row[columnIndex] || '').trim()
+        const value = String(row[columnIndex] ?? '').trim()
         if (value && !uniqueValues.has(value)) {
           uniqueValues.add(value)
           columnValues.push(value)
@@ -517,7 +552,8 @@ function App() {
       await window.electronAPI.predictStream(columnValues, 3)
     } catch (error) {
       setIsPredicting(false)
-      setMessage(`❌ 预测启动失败: ${error}`)
+      const errorMessage = formatError(error)
+      setMessage(`❌ 预测启动失败: ${errorMessage}`)
     }
   }, [activeTab])
 
@@ -634,7 +670,7 @@ function App() {
 
     // 更新数据表中所有匹配的单元格（回填到选中的列）
     const newRows = activeTab.excelData.rows.map(row => {
-      const cellValue = String(row[selectedPredictionColumn] || '').trim()
+      const cellValue = String(row[selectedPredictionColumn] ?? '').trim()
       if (cellValue === sourceField) {
         const newRow = [...row]
         // 将结果写入选中的列（原地回填）
@@ -687,7 +723,7 @@ function App() {
 
     // 更新所有匹配的行（回填到选中的列）
     const newRows = activeTab.excelData.rows.map(row => {
-      const cellValue = String(row[selectedPredictionColumn] || '').trim()
+      const cellValue = String(row[selectedPredictionColumn] ?? '').trim()
       if (resultMap.has(cellValue)) {
         const newRow = [...row]
         // 将结果写入选中的列（原地回填）
@@ -798,7 +834,8 @@ function App() {
       
       setMessage(isCorrect ? '✅ 已确认预测正确' : '✅ 已提交反馈')
     } catch (error) {
-      setMessage(`❌ 保存反馈失败: ${error}`)
+      const errorMessage = formatError(error)
+      setMessage(`❌ 保存反馈失败: ${errorMessage}`)
     }
     
     setFeedbackModalVisible(false)
@@ -838,7 +875,9 @@ function App() {
       handleOpenFolder(data.folderPath, data.tree)
     }
     window.electronAPI.onFolderOpened(callback)
-    // ipcRenderer.on 不需要手动移除，通道随页面生命周期管理
+    return () => {
+      window.electronAPI.offFolderOpened?.()
+    }
   }, [handleOpenFolder])
 
   // 监听流式预测事件 - 只注册一次
@@ -854,7 +893,11 @@ function App() {
     window.electronAPI.onPredictComplete(completeCallback)
     window.electronAPI.onPredictError(errorCallback)
 
-    // 注意：ipcRenderer.on 不需要手动移除，通道随页面生命周期管理
+    return () => {
+      window.electronAPI.offPredictProgress?.()
+      window.electronAPI.offPredictComplete?.()
+      window.electronAPI.offPredictError?.()
+    }
   }, []) // 空依赖数组，只在组件挂载时执行
 
   // 快捷键绑定：仅保留 Ctrl+S 保存
