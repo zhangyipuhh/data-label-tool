@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Check, Send, X } from 'lucide-react'
+import { Send, X } from 'lucide-react'
 
 /**
  * FeedbackModal 组件 Props 接口
@@ -11,11 +11,9 @@ interface FeedbackModalProps {
   sourceField: string
   /** 预测结果，只读显示 */
   predictedResult: string
-  /** 确认正确按钮回调 */
-  onConfirm: () => void
   /**
    * 提交反馈按钮回调
-   * @param actualContent - 用户输入的实际内容
+   * @param actualContent - 用户输入的实际内容，若为空则默认使用预测结果
    */
   onSubmit: (actualContent: string) => void
   /** 取消按钮回调，关闭弹窗 */
@@ -32,7 +30,6 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
   visible,
   sourceField,
   predictedResult,
-  onConfirm,
   onSubmit,
   onCancel
 }) => {
@@ -48,17 +45,15 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
 
   // 处理提交反馈
   const handleSubmit = () => {
-    if (actualContent.trim()) {
-      onSubmit(actualContent.trim())
-      setActualContent('')
-    }
+    onSubmit(actualContent.trim())
+    setActualContent('')
   }
 
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       onCancel()
-    } else if (e.key === 'Enter' && e.ctrlKey && actualContent.trim()) {
+    } else if (e.key === 'Enter' && e.ctrlKey) {
       // Ctrl+Enter 快捷提交
       handleSubmit()
     }
@@ -120,7 +115,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               实际内容
-              <span className="text-gray-400 font-normal ml-1">（如需修正请填写）</span>
+              <span className="text-gray-400 font-normal ml-1">（用户确认的正确内容）</span>
             </label>
             <input
               type="text"
@@ -131,7 +126,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
               autoFocus
             />
             <p className="mt-1 text-xs text-gray-400">
-              提示：按 Ctrl+Enter 可快速提交反馈
+              提示：按 Ctrl+Enter 可快速提交反馈；不填写则默认采用预测结果
             </p>
           </div>
         </div>
@@ -147,20 +142,10 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
               取消
             </button>
 
-            {/* 确认正确按钮 */}
-            <button
-              onClick={onConfirm}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-green-700 bg-green-100 border border-green-200 rounded-lg hover:bg-green-200 transition-colors"
-            >
-              <Check className="w-4 h-4" />
-              确认正确
-            </button>
-
             {/* 提交反馈按钮 */}
             <button
               onClick={handleSubmit}
-              disabled={!actualContent.trim()}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Send className="w-4 h-4" />
               提交反馈

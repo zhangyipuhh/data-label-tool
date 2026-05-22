@@ -527,39 +527,17 @@ function App() {
   }, [predictionResults])
 
   /**
-   * 确认预测正确
-   * 保存反馈到数据库
-   */
-  const handleFeedbackConfirm = useCallback(async () => {
-    const { sourceField, predictedResult, index } = feedbackModalData
-    
-    try {
-      const recordId = predictionRecordIds.current[index]
-      await window.electronAPI.saveFeedbackRecord({
-        predictionId: recordId,
-        batchId: currentBatchId,
-        sourceField,
-        predictedResult,
-        actualContent: predictedResult,
-        isCorrect: true,
-        fileName: excelData?.fileName || ''
-      })
-      setMessage('✅ 已确认预测正确')
-    } catch (error) {
-      setMessage(`❌ 保存反馈失败: ${error}`)
-    }
-    
-    setFeedbackModalVisible(false)
-  }, [feedbackModalData, currentBatchId, excelData])
-
-  /**
    * 提交反馈（带实际内容）
-   * 保存修正后的反馈到数据库
-   * @param actualContent - 用户输入的实际内容
+   * 保存修正后的反馈到数据库，并更新预测结果面板
+   * @param actualContent - 用户输入的实际内容，若为空则默认使用预测结果
    */
   const handleFeedbackSubmit = useCallback(async (actualContent: string) => {
     const { sourceField, predictedResult, index } = feedbackModalData
     
+    // 若用户未填写内容，默认采用预测结果作为实际内容（相当于确认正确）
+    const finalActualContent = actualContent.trim() || predictedResult
+    const isCorrect = finalActualContent === predictedResult
+    
     try {
       const recordId = predictionRecordIds.current[index]
       await window.electronAPI.saveFeedbackRecord({
@@ -567,11 +545,36 @@ function App() {
         batchId: currentBatchId,
         sourceField,
         predictedResult,
-        actualContent,
-        isCorrect: false,
+        actualContent: finalActualContent,
+        isCorrect,
         fileName: excelData?.fileName || ''
       })
-      setMessage('✅ 已提交反馈')
+      
+      // 更新预测结果面板：将反馈内容更新到对应位置，置信度改为100%
+      setPredictionResults(prev => {
+        const newResults = [...prev]
+        const currentResult = newResults[index]
+        if (currentResult) {
+          // 构建新的备选结果数组：将反馈内容作为最高置信度项插入首位，并去重
+          const filteredAlternatives = currentResult.alternatives.filter(
+            a => a.content !== finalActualContent
+          )
+          const newAlternatives = [
+            { content: finalActualContent, confidence: 1.0 },
+            ...filteredAlternatives
+          ]
+          
+          newResults[index] = {
+            ...currentResult,
+            content: finalActualContent,
+            confidence: 1.0,
+            alternatives: newAlternatives
+          }
+        }
+        return newResults
+      })
+      
+      setMessage(isCorrect ? '✅ 已确认预测正确' : '✅ 已提交反馈')
     } catch (error) {
       setMessage(`❌ 保存反馈失败: ${error}`)
     }
@@ -737,7 +740,6 @@ function App() {
         visible={feedbackModalVisible}
         sourceField={feedbackModalData.sourceField}
         predictedResult={feedbackModalData.predictedResult}
-        onConfirm={handleFeedbackConfirm}
         onSubmit={handleFeedbackSubmit}
         onCancel={handleFeedbackCancel}
       />
