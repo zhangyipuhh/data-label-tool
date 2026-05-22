@@ -1,0 +1,33 @@
+# 依赖
+node_modules/
+python_service/__pycache__/
+python_service/*.pyc
+python_service/.env
+
+# 构建输出
+dist/
+dist-electron/
+release/
+
+# 数据库
+*.db
+*.db-journal
+
+# 日志
+*.log
+logs/
+
+# 环境变量
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+Thumbs.db
+AGENTS.md
