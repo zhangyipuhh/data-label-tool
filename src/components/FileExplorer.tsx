@@ -6,6 +6,7 @@ import {
   File,
   ChevronRight,
   ChevronDown,
+  ChevronLeft,
 } from 'lucide-react'
 
 /**
@@ -34,6 +35,10 @@ interface FileExplorerProps {
   tree: FileTreeNode[] | null
   selectedFilePath: string | null
   onFileSelect: (filePath: string) => void
+  /** 是否折叠整个资源管理器面板 */
+  collapsed?: boolean
+  /** 切换折叠状态的回调 */
+  onToggleCollapse?: () => void
 }
 
 /**
@@ -171,6 +176,8 @@ export default function FileExplorer({
   tree,
   selectedFilePath,
   onFileSelect,
+  collapsed = false,
+  onToggleCollapse,
 }: FileExplorerProps) {
   /** 已展开的文件夹路径集合 */
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
@@ -191,12 +198,41 @@ export default function FileExplorer({
     })
   }
 
+  /**
+   * 折叠状态：仅渲染窄边栏，提供展开按钮
+   */
+  if (collapsed) {
+    return (
+      <div className="h-full flex flex-col items-center bg-gray-900 border-r border-gray-700/50 py-2">
+        <button
+          onClick={onToggleCollapse}
+          className="p-1.5 rounded hover:bg-gray-700 text-gray-400 transition-colors"
+          title="展开资源管理器"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </button>
+        <div className="mt-2">
+          <FolderOpen className="w-5 h-5 text-gray-500" />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="h-full flex flex-col bg-gray-900 text-gray-300">
       {/* 顶部标题栏 */}
-      <div className="flex items-center gap-2 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400 border-b border-gray-700/50">
-        <FolderOpen className="w-4 h-4" />
-        <span>资源管理器</span>
+      <div className="flex items-center justify-between px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400 border-b border-gray-700/50">
+        <div className="flex items-center gap-2">
+          <FolderOpen className="w-4 h-4" />
+          <span>资源管理器</span>
+        </div>
+        <button
+          onClick={onToggleCollapse}
+          className="p-0.5 rounded hover:bg-gray-700 text-gray-400 transition-colors"
+          title="折叠资源管理器"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
       </div>
 
       {/* 目录树内容区域 */}

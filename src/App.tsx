@@ -54,6 +54,8 @@ function App() {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
   /** 当前打开的文件夹路径（保留供后续功能使用） */
   const [_folderPath, setFolderPath] = useState<string | null>(null)
+  /** 左侧资源管理器是否折叠 */
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   // ========== 预测相关状态 ==========
   /** 是否正在预测中 */
@@ -665,8 +667,14 @@ function App() {
       {/* 主内容区：左右分栏 */}
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧：文件浏览器 */}
-        <div className="w-[20%] min-w-[200px]">
-          <FileExplorer tree={directoryTree} selectedFilePath={selectedFilePath} onFileSelect={handleFileSelect} />
+        <div className={`${isSidebarCollapsed ? 'w-10' : 'w-[20%] min-w-[200px]'} transition-all duration-200`}>
+          <FileExplorer 
+            tree={directoryTree} 
+            selectedFilePath={selectedFilePath} 
+            onFileSelect={handleFileSelect} 
+            collapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
+          />
         </div>
 
         {/* 右侧：Excel 数据展示区 */}
