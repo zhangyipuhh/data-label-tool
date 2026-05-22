@@ -1,0 +1,27 @@
+{
+  "description": "缩写识别过滤配置",
+  "version": "1.0.0",
+  "rules": {
+    "exact_match": {
+      "description": "精确匹配替换规则，匹配成功直接返回替换值，置信度100%",
+      "items": [
+       
+      ]
+    },
+    "prefix_match": {
+      "description": "前缀匹配规则，匹配成功返回原值，不进行模型识别",
+      "prefixes": [
+        "SHAPE",
+        "GEOM",
+        "OBJECTID",
+        "FID",
+        "GID",
+        "UID",
+        "UUID",
+        "GLOBALID",
+        "OID",
+        "GOOGLE"
+      ]
+    }
+  }
+}
