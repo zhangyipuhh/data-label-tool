@@ -104,26 +104,6 @@ interface GetPredictionRecordsParams {
   batchId?: string
 }
 
-/**
- * 数据库加密状态接口
- * @property isDebugMode - 是否为调试模式
- * @property isEncrypted - 数据库是否已加密
- * @property hasKey - 是否有可用的加密密钥
- */
-interface EncryptionStatus {
-  isDebugMode: boolean
-  isEncrypted: boolean
-  hasKey: boolean
-}
-
-/**
- * 解密数据库参数
- * @property outputPath - 解密后的数据库输出路径
- */
-interface DecryptDatabaseParams {
-  outputPath: string
-}
-
 contextBridge.exposeInMainWorld('electronAPI', {
   // 文件操作
   selectExcelFile: () => ipcRenderer.invoke('select-excel-file'),
@@ -218,7 +198,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @param params - 解密参数
    * @returns Promise<{ success: boolean; message?: string; outputPath?: string }> - 解密结果
    */
-  decryptDatabase: (params: DecryptDatabaseParams) =>
+  decryptDatabase: (params: { outputPath: string }) =>
     ipcRenderer.invoke('decrypt-database', params),
 
   /**
@@ -281,48 +261,3 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   }
 })
-
-declare global {
-  interface Window {
-    electronAPI: {
-      // 文件操作
-      selectExcelFile: () => Promise<any>
-      readExcel: (filePath: string) => Promise<any>
-      saveExcel: (params: any) => Promise<any>
-      
-      // 推理
-      runInference: (columnData: string[], columnName: string) => Promise<any>
-      
-      // 反馈
-      saveFeedback: (feedback: any) => Promise<any>
-      getFeedbackStats: () => Promise<any>
-      exportFeedback: (format: 'json' | 'csv') => Promise<any>
-      
-      // 应用信息
-      getAppVersion: () => Promise<{ version: string }>
-      
-      // 文件夹操作
-      selectFolder: () => Promise<any>
-      readDirectoryTree: (folderPath: string) => Promise<any>
-      
-      // 流式预测
-      predictStream: (data: string[], k?: number) => Promise<any>
-      savePredictionRecord: (record: PredictionRecordParams) => Promise<any>
-      updateUserSelection: (params: UpdateUserSelectionParams) => Promise<any>
-      saveFeedbackRecord: (record: FeedbackRecordParams) => Promise<any>
-      getPredictionRecords: (params?: GetPredictionRecordsParams) => Promise<any>
-
-      // 数据库加密
-      getEncryptionStatus: () => Promise<{ success: boolean; status?: EncryptionStatus; message?: string }>
-      decryptDatabase: (params: DecryptDatabaseParams) => Promise<{ success: boolean; message?: string; outputPath?: string }>
-      generateEncryptionKey: () => Promise<{ success: boolean; key?: string; message?: string }>
-      getMachineFingerprint: () => Promise<{ success: boolean; fingerprint?: any; message?: string }>
-
-      // 事件监听
-      onFolderOpened: (callback: (data: { folderPath: string; tree: any[] }) => void) => void
-      onPredictProgress: (callback: (data: PredictProgressData) => void) => void
-      onPredictComplete: (callback: (data: PredictCompleteData) => void) => void
-      onPredictError: (callback: (error: { message: string }) => void) => void
-    }
-  }
-}

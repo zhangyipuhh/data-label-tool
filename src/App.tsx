@@ -148,7 +148,7 @@ function App() {
         return
       }
       const result = await window.electronAPI.selectFolder()
-      if (!result.success) {
+      if (!result.success || !result.folderPath) {
         setMessage(result.message || '选择文件夹失败')
         return
       }
@@ -156,7 +156,7 @@ function App() {
       // 读取目录树
       const treeResult = await window.electronAPI.readDirectoryTree(result.folderPath)
       if (treeResult.success) {
-        setDirectoryTree(treeResult.tree)
+        setDirectoryTree(treeResult.tree || null)
         setMessage(`✅ 已打开文件夹: ${result.folderPath}`)
       } else {
         setMessage(`❌ 读取目录失败: ${treeResult.message}`)

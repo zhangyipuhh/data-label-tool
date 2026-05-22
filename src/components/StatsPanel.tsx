@@ -18,7 +18,7 @@ const StatsPanel: React.FC = () => {
   const loadStats = async () => {
     try {
       const result = await window.electronAPI.getFeedbackStats()
-      if (result.success) {
+      if (result.success && result.stats) {
         setStats(result.stats)
       }
     } catch (error) {
