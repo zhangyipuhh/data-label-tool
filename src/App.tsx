@@ -5,6 +5,7 @@ import FileExplorer from './components/FileExplorer'
 import ProgressBar from './components/ProgressBar'
 import PredictionPanel, { PredictionResult } from './components/PredictionPanel'
 import FeedbackModal from './components/FeedbackModal'
+import ResizableDivider from './components/ResizableDivider'
 
 /** Excel 数据接口，DataTable 等组件依赖此接口 */
 export interface ExcelData {
@@ -56,6 +57,15 @@ function App() {
   const [_folderPath, setFolderPath] = useState<string | null>(null)
   /** 左侧资源管理器是否折叠 */
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  /** 左侧资源管理器宽度（像素），默认 280px，从 localStorage 恢复 */
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('sidebarWidth')
+    return saved ? parseInt(saved, 10) : 280
+  })
+  /** 左侧栏最小宽度 */
+  const SIDEBAR_MIN_WIDTH = 200
+  /** 左侧栏最大宽度 */
+  const SIDEBAR_MAX_WIDTH = 600
 
   // ========== 预测相关状态 ==========
   /** 是否正在预测中 */
@@ -97,6 +107,29 @@ function App() {
   const generateBatchId = (): string => {
     return `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   }
+
+  /**
+   * 处理拖拽分隔条调整左侧栏宽度
+   * 限制在最小和最大宽度范围内
+   * @param delta - 拖拽的像素差值
+   */
+  const handleSidebarResize = useCallback(
+    (delta: number) => {
+      setSidebarWidth((prev) => {
+        const newWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, prev + delta))
+        localStorage.setItem('sidebarWidth', String(newWidth))
+        return newWidth
+      })
+    },
+    []
+  )
+
+  /**
+   * 双击分隔条折叠/展开左侧栏
+   */
+  const handleDividerDoubleClick = useCallback(() => {
+    setIsSidebarCollapsed((prev) => !prev)
+  }, [])
 
   /**
    * 打开文件夹
@@ -665,20 +698,31 @@ function App() {
       )}
 
       {/* 主内容区：左右分栏 */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden gap-2 p-2">
         {/* 左侧：文件浏览器 */}
-        <div className={`${isSidebarCollapsed ? 'w-10' : 'w-[20%] min-w-[200px]'} transition-all duration-200`}>
-          <FileExplorer 
-            tree={directoryTree} 
-            selectedFilePath={selectedFilePath} 
-            onFileSelect={handleFileSelect} 
+        <div
+          className={`${isSidebarCollapsed ? 'w-10' : ''} transition-all duration-200 flex-shrink-0`}
+          style={{ width: isSidebarCollapsed ? 40 : sidebarWidth }}
+        >
+          <FileExplorer
+            tree={directoryTree}
+            selectedFilePath={selectedFilePath}
+            onFileSelect={handleFileSelect}
             collapsed={isSidebarCollapsed}
             onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)}
           />
         </div>
 
+        {/* 可拖拽分隔条（仅展开状态显示） */}
+        {!isSidebarCollapsed && (
+          <ResizableDivider
+            onResize={handleSidebarResize}
+            onDoubleClick={handleDividerDoubleClick}
+          />
+        )}
+
         {/* 右侧：Excel 数据展示区 */}
-        <div className="flex-[3] bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 bg-white flex flex-col overflow-hidden rounded-lg">
           {/* 工具栏 - 保存按钮 */}
           {excelData && (
             <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-gray-50 flex-shrink-0">
