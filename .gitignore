@@ -8,6 +8,7 @@ python_service/.env
 dist/
 dist-electron/
 release/
+python_dist/
 /.trae/
 # 数据库
 *.db

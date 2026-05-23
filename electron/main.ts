@@ -19,8 +19,8 @@ let predictionDb: Database.Database | null = null
 let feedbackDb: Database.Database | null = null
 let pythonServicePort: number = 5000
 
-// 数据目录路径
-const DATA_DIR = 'e:\\laboratory\\AI\\Fine-tuning\\data-label-tool\\data'
+// 数据目录路径（打包后使用 userData 目录）
+const DATA_DIR = path.join(app.getPath('userData'), 'data')
 
 /**
  * 文件树节点接口
@@ -96,6 +96,41 @@ function getPythonServicePath(): string {
     return path.join(__dirname, '..', 'python_service')
   }
   return path.join(process.resourcesPath, 'python_service')
+}
+
+/**
+ * 获取配置文件目录路径
+ * 开发模式：项目根目录下的 config/
+ * 打包模式：首次运行从 resources/config/ 复制到 userData/config/，后续读写 userData
+ * @returns 配置文件目录的绝对路径
+ */
+function getConfigDir(): string {
+  if (!app.isPackaged) {
+    return path.join(__dirname, '..', 'config')
+  }
+  const userConfigDir = path.join(app.getPath('userData'), 'config')
+  if (!fs.existsSync(userConfigDir)) {
+    fs.mkdirSync(userConfigDir, { recursive: true })
+    // 首次运行时，从 resources 复制默认配置到 userData
+    const resourceConfigDir = path.join(process.resourcesPath, 'config')
+    if (fs.existsSync(resourceConfigDir)) {
+      fs.cpSync(resourceConfigDir, userConfigDir, { recursive: true })
+    }
+  }
+  return userConfigDir
+}
+
+/**
+ * 获取模型目录路径
+ * 开发模式：项目根目录下的 models/
+ * 打包模式：安装目录下的 resources/models/（用户手动放置）
+ * @returns 模型目录的绝对路径
+ */
+function getModelsDir(): string {
+  if (!app.isPackaged) {
+    return path.join(__dirname, '..', 'models')
+  }
+  return path.join(process.resourcesPath, 'models')
 }
 
 /**
@@ -404,9 +439,23 @@ function findAvailablePort(startPort: number, endPort: number): Promise<number> 
 }
 
 async function startPythonService() {
-  const pythonServicePath = getPythonServicePath()
-  const appPyPath = path.join(pythonServicePath, 'app.py')
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
+  const isDev = !app.isPackaged
+  let pythonCmd: string
+  let args: string[]
+  let pythonCwd: string
+
+  if (isDev) {
+    // 开发模式：使用系统 Python
+    const pythonServicePath = getPythonServicePath()
+    pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
+    args = [path.join(pythonServicePath, 'app.py')]
+    pythonCwd = pythonServicePath
+  } else {
+    // 打包模式：使用 PyInstaller 生成的可执行文件
+    pythonCmd = path.join(process.resourcesPath, 'python_service', 'app.exe')
+    args = []
+    pythonCwd = path.dirname(pythonCmd)
+  }
 
   try {
     pythonServicePort = await findAvailablePort(5000, 5010)
@@ -415,10 +464,10 @@ async function startPythonService() {
     pythonServicePort = 5000
   }
 
-  console.log('启动 Python 服务:', appPyPath, '端口:', pythonServicePort)
+  console.log('启动 Python 服务:', pythonCmd, '端口:', pythonServicePort)
 
   // 读取 GPU 配置，传递给 Python 服务
-  const gpuConfigPath = path.join(__dirname, '..', 'config', 'gpu_config.json')
+  const gpuConfigPath = path.join(getConfigDir(), 'gpu_config.json')
   const gpuEnv: Record<string, string> = {}
   try {
     if (fs.existsSync(gpuConfigPath)) {
@@ -434,9 +483,16 @@ async function startPythonService() {
     console.warn('读取 GPU 配置失败:', err)
   }
 
-  pythonProcess = spawn(pythonCmd, [appPyPath], {
-    cwd: pythonServicePath,
-    env: { ...process.env, PYTHONPATH: pythonServicePath, PORT: String(pythonServicePort), ...gpuEnv }
+  pythonProcess = spawn(pythonCmd, args, {
+    cwd: pythonCwd,
+    env: {
+      ...process.env,
+      PYTHONPATH: isDev ? getPythonServicePath() : pythonCwd,
+      PORT: String(pythonServicePort),
+      CONFIG_DIR: getConfigDir(),
+      MODEL_DIR: getModelsDir(),
+      ...gpuEnv
+    } as Record<string, string>
   })
 
   pythonProcess.stdout?.on('data', (data) => console.log(`Python: ${data}`))
@@ -1408,7 +1464,7 @@ ipcMain.handle('get-machine-fingerprint', async (): Promise<{ success: boolean; 
  */
 ipcMain.handle('read-gpu-config', async (): Promise<{ success: boolean; config?: any; message?: string }> => {
   try {
-    const configPath = path.join(__dirname, '..', 'config', 'gpu_config.json')
+    const configPath = path.join(getConfigDir(), 'gpu_config.json')
     if (!fs.existsSync(configPath)) {
       return { success: true, config: { device: 'auto', cuda_visible_devices: '' } }
     }
@@ -1427,7 +1483,7 @@ ipcMain.handle('read-gpu-config', async (): Promise<{ success: boolean; config?:
  */
 ipcMain.handle('save-gpu-config', async (_, config: any): Promise<{ success: boolean; message?: string }> => {
   try {
-    const configPath = path.join(__dirname, '..', 'config', 'gpu_config.json')
+    const configPath = path.join(getConfigDir(), 'gpu_config.json')
     const existingConfig = fs.existsSync(configPath)
       ? JSON.parse(fs.readFileSync(configPath, 'utf-8'))
       : {}
@@ -1449,7 +1505,7 @@ ipcMain.handle('save-gpu-config', async (_, config: any): Promise<{ success: boo
  */
 ipcMain.handle('read-filter-config', async (): Promise<{ success: boolean; config?: any; message?: string }> => {
   try {
-    const configPath = path.join(__dirname, '..', 'config', 'filter_config.json')
+    const configPath = path.join(getConfigDir(), 'filter_config.json')
     if (!fs.existsSync(configPath)) {
       return {
         success: true,
@@ -1476,7 +1532,7 @@ ipcMain.handle('read-filter-config', async (): Promise<{ success: boolean; confi
  */
 ipcMain.handle('save-filter-config', async (_, config: any): Promise<{ success: boolean; message?: string }> => {
   try {
-    const configPath = path.join(__dirname, '..', 'config', 'filter_config.json')
+    const configPath = path.join(getConfigDir(), 'filter_config.json')
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
 
     // 通知 Python 服务重载配置

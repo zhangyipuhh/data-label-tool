@@ -43,17 +43,26 @@
     },
     "files": [
       "dist",
-      "dist-electron",
-      "python_service"
+      "dist-electron"
     ],
     "extraResources": [
       {
-        "from": "python_service",
+        "from": "python_dist/app",
         "to": "python_service",
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "config",
+        "to": "config",
+        "filter": [
+          "**/*"
+        ]
       }
+    ],
+    "asarUnpack": [
+      "dist-electron/**/*"
     ],
     "win": {
       "target": [

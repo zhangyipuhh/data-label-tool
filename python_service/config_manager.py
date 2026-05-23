@@ -7,10 +7,40 @@
 
 import json
 import os
+import sys
 import logging
 from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def get_base_dir():
+    """获取基础目录路径
+
+    PyInstaller 打包后使用可执行文件所在目录，
+    开发模式使用脚本所在目录。
+
+    返回:
+        str: 基础目录的绝对路径
+    """
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_config_dir():
+    """获取配置目录路径
+
+    优先使用环境变量 CONFIG_DIR（由 Electron 传入），
+    否则使用相对于脚本/可执行文件的路径。
+
+    返回:
+        str: 配置目录的绝对路径
+    """
+    env_dir = os.environ.get('CONFIG_DIR')
+    if env_dir and os.path.isdir(env_dir):
+        return env_dir
+    return os.path.join(get_base_dir(), "..", "config")
 
 
 class ConfigManager:
@@ -21,9 +51,7 @@ class ConfigManager:
     """
 
     DEFAULT_CONFIG_PATH = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "..",
-        "config",
+        get_config_dir(),
         "filter_config.json"
     )
 

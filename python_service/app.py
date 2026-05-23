@@ -40,6 +40,51 @@ app = Flask(__name__)
 CORS(app)
 
 
+def get_base_dir():
+    """获取基础目录路径
+
+    PyInstaller 打包后使用可执行文件所在目录，
+    开发模式使用脚本所在目录。
+
+    返回:
+        str: 基础目录的绝对路径
+    """
+    if getattr(sys, 'frozen', False):
+        # PyInstaller 打包后，使用可执行文件所在目录
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_config_dir():
+    """获取配置目录路径
+
+    优先使用环境变量 CONFIG_DIR（由 Electron 传入），
+    否则使用相对于脚本/可执行文件的路径。
+
+    返回:
+        str: 配置目录的绝对路径
+    """
+    env_dir = os.environ.get('CONFIG_DIR')
+    if env_dir and os.path.isdir(env_dir):
+        return env_dir
+    return os.path.join(get_base_dir(), "..", "config")
+
+
+def get_models_dir():
+    """获取模型目录路径
+
+    优先使用环境变量 MODEL_DIR（由 Electron 传入），
+    否则使用相对于脚本/可执行文件的路径。
+
+    返回:
+        str: 模型目录的绝对路径
+    """
+    env_dir = os.environ.get('MODEL_DIR')
+    if env_dir and os.path.isdir(env_dir):
+        return env_dir
+    return os.path.join(get_base_dir(), "..", "models")
+
+
 class NARConfig:
     """NAR 模型配置类"""
     SPECIAL_TOKENS = ["<ABBR>", "</ABBR>"]
@@ -57,8 +102,8 @@ class NARInference:
         device: str = None,
         verbose: bool = False,
     ):
-        _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        self.model_path = model_path or os.path.join(_BASE_DIR, "..", "models", "abbr_mapper_nar")
+        _BASE_DIR = get_base_dir()
+        self.model_path = model_path or os.path.join(get_models_dir(), "abbr_mapper_nar")
         self.base_model_path = base_model_path or NARConfig.DEFAULT_MODEL_PATH
         self.verbose = verbose
         self.device = device
@@ -85,8 +130,8 @@ class NARInference:
         异常:
             无，配置文件不存在或格式错误时返回默认配置
         """
-        _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.join(_BASE_DIR, "..", "config", "gpu_config.json")
+        _BASE_DIR = get_base_dir()
+        config_path = os.path.join(get_config_dir(), "gpu_config.json")
         default_config = {"device": "auto", "cuda_visible_devices": ""}
 
         if not os.path.exists(config_path):
@@ -331,7 +376,7 @@ class BERTModel:
 
         logger.info("[DEBUG] 正在加载 NAR 模型...")
         self.inference = NARInference(
-            model_path=os.path.join(os.path.dirname(__file__), "..", "models", "abbr_mapper_nar"),
+            model_path=os.path.join(get_models_dir(), "abbr_mapper_nar"),
             device=env_device,
             verbose=True
         )
