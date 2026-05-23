@@ -138,25 +138,26 @@ const PredictionPanel = ({
         onClick={() => setIsCollapsed(true)}
       />
 
+      {/* 折叠状态标签按钮 - 独立于面板的 fixed 元素 */}
+      {visible && (
+        <button
+          onClick={() => setIsCollapsed(false)}
+          className={`fixed right-0 top-1/2 -translate-y-1/2 flex flex-col items-center justify-center w-10 h-32 bg-purple-600 text-white rounded-l-lg shadow-lg hover:bg-purple-700 transition-all duration-300 cursor-pointer z-50 ${
+            isCollapsed ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'
+          }`}
+          title="展开预测结果面板"
+        >
+          <ChevronLeft className="w-4 h-4 mb-1" />
+          <span className="text-xs writing-mode-vertical">预测结果</span>
+        </button>
+      )}
+
       {/* 滑出式面板 */}
       <div
-        className={`fixed top-0 right-0 h-full w-[400px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${
-          visible ? (isCollapsed ? 'translate-x-[calc(100%-40px)]' : 'translate-x-0') : 'translate-x-full'
+        className={`fixed top-0 right-0 h-full w-[400px] bg-white shadow-2xl z-40 transform transition-transform duration-300 ease-in-out ${
+          visible ? (isCollapsed ? 'translate-x-full' : 'translate-x-0') : 'translate-x-full'
         }`}
       >
-        {/* 折叠状态标签 - 始终显示在面板左侧边缘 */}
-        {visible && (
-          <button
-            onClick={() => setIsCollapsed(false)}
-            className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full flex flex-col items-center justify-center w-10 h-32 bg-purple-600 text-white rounded-l-lg shadow-lg hover:bg-purple-700 transition-colors cursor-pointer ${
-              isCollapsed ? 'opacity-100' : 'opacity-0 pointer-events-none'
-            } transition-opacity duration-300`}
-            title="展开预测结果面板"
-          >
-            <ChevronLeft className="w-4 h-4 mb-1" />
-            <span className="text-xs writing-mode-vertical">预测结果</span>
-          </button>
-        )}
         {/* 面板头部 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
           <div>
