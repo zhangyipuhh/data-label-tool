@@ -255,7 +255,7 @@ const DataTable: React.FC<Props> = ({
       {contextMenu.visible && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[140px] bg-white rounded-lg shadow-lg border border-gray-200 py-1 animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-50 min-w-[140px] bg-white rounded-lg shadow-lg border border-gray-200 py-1 animate-menu-zoom-in"
           style={{
             left: contextMenu.x,
             top: contextMenu.y

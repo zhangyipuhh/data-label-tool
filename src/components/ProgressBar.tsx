@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 
 /**
@@ -30,15 +30,53 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
   onCancel,
   visible
 }) => {
-  // 不可见时不渲染
-  if (!visible) return null
+  /**
+   * 是否正在播放退出动画
+   * 用于控制组件卸载前的淡出效果
+   */
+  const [isExiting, setIsExiting] = useState(false)
+  /**
+   * 是否真正渲染组件
+   * 在退出动画播放期间保持为 true
+   */
+  const [shouldRender, setShouldRender] = useState(visible)
+
+  /**
+   * 监听 visible 属性变化，管理入场和出场动画
+   */
+  useEffect(() => {
+    if (visible) {
+      // 需要显示：立即设置渲染状态，关闭退出状态
+      setIsExiting(false)
+      setShouldRender(true)
+    } else {
+      // 需要隐藏：启动退出动画
+      setIsExiting(true)
+      // 等待动画完成后卸载组件
+      const timer = setTimeout(() => {
+        setShouldRender(false)
+      }, 200)
+      return () => clearTimeout(timer)
+    }
+  }, [visible])
+
+  // 不可见且不处于退出动画时不渲染
+  if (!shouldRender) return null
 
   // 确保进度值在 0-100 范围内
   const clampedProgress = Math.min(Math.max(progress, 0), 100)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-[400px] max-w-[90vw] bg-white rounded-xl shadow-2xl p-6 animate-in fade-in zoom-in duration-200">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/30 ${
+        isExiting ? 'animate-fade-out' : 'animate-fade-in'
+      }`}
+    >
+      <div
+        className={`w-[400px] max-w-[90vw] bg-white rounded-xl shadow-2xl p-6 ${
+          isExiting ? 'animate-zoom-out-fade' : 'animate-zoom-in-fade'
+        }`}
+      >
         {/* 标题和取消按钮 */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-gray-800">正在预测...</h3>

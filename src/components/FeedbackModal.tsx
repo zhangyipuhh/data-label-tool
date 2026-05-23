@@ -35,11 +35,40 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
 }) => {
   // 实际内容输入状态
   const [actualContent, setActualContent] = useState('')
+  /**
+   * 是否正在播放退出动画
+   * 用于控制组件卸载前的淡出效果
+   */
+  const [isExiting, setIsExiting] = useState(false)
+  /**
+   * 是否真正渲染组件
+   * 在退出动画播放期间保持为 true
+   */
+  const [shouldRender, setShouldRender] = useState(visible)
 
   // 当弹窗显示时，重置输入框
   useEffect(() => {
     if (visible) {
       setActualContent('')
+    }
+  }, [visible])
+
+  /**
+   * 监听 visible 属性变化，管理入场和出场动画
+   */
+  useEffect(() => {
+    if (visible) {
+      // 需要显示：立即设置渲染状态，关闭退出状态
+      setIsExiting(false)
+      setShouldRender(true)
+    } else {
+      // 需要隐藏：启动退出动画
+      setIsExiting(true)
+      // 等待动画完成后卸载组件
+      const timer = setTimeout(() => {
+        setShouldRender(false)
+      }, 200)
+      return () => clearTimeout(timer)
     }
   }, [visible])
 
@@ -59,24 +88,30 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
     }
   }
 
-  // 如果不可见，不渲染任何内容
-  if (!visible) {
+  // 如果不可见且不处于退出动画，不渲染任何内容
+  if (!shouldRender) {
     return null
   }
 
   return (
-    <div 
-      className="fixed inset-0 z-50 flex items-center justify-center"
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center ${
+        isExiting ? 'animate-fade-out' : 'animate-fade-in'
+      }`}
       onKeyDown={handleKeyDown}
     >
       {/* 遮罩层 */}
-      <div 
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
+      <div
+        className="absolute inset-0 bg-black/50"
         onClick={onCancel}
       />
 
       {/* 弹窗主体 */}
-      <div className="relative w-[500px] h-[400px] bg-white rounded-xl shadow-2xl transform transition-all duration-300 scale-100 animate-in fade-in zoom-in-95">
+      <div
+        className={`relative w-[500px] h-[400px] bg-white rounded-xl shadow-2xl ${
+          isExiting ? 'animate-zoom-out-fade' : 'animate-zoom-in-fade'
+        }`}
+      >
         {/* 标题栏 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-800">结果反馈</h3>
