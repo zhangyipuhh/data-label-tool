@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { X, ThumbsDown, ChevronDown, ChevronUp, Check, ArrowRight } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, ThumbsDown, ChevronDown, ChevronUp, Check, ArrowRight, ChevronLeft } from 'lucide-react'
 
 /**
  * 预测结果接口，包含源字段、预测内容、置信度和备选结果
@@ -65,6 +65,17 @@ const PredictionPanel = ({
 }: PredictionPanelProps) => {
   /** 记录每个结果的展开状态（显示备选列表） */
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
+  /** 面板是否折叠到最右侧 */
+  const [isCollapsed, setIsCollapsed] = useState(false)
+
+  /**
+   * 当面板从隐藏变为显示时，重置折叠状态为展开
+   */
+  useEffect(() => {
+    if (visible) {
+      setIsCollapsed(false)
+    }
+  }, [visible])
 
   /**
    * 根据置信度获取背景颜色类名
@@ -119,20 +130,33 @@ const PredictionPanel = ({
 
   return (
     <>
-      {/* 遮罩层 - 点击可关闭面板 */}
+      {/* 遮罩层 - 点击可折叠面板（仅展开状态下响应点击） */}
       <div
         className={`fixed inset-0 bg-black/30 transition-opacity duration-300 z-40 ${
-          visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          visible && !isCollapsed ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
-        onClick={onClose}
+        onClick={() => setIsCollapsed(true)}
       />
 
       {/* 滑出式面板 */}
       <div
         className={`fixed top-0 right-0 h-full w-[400px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${
-          visible ? 'translate-x-0' : 'translate-x-full'
+          visible ? (isCollapsed ? 'translate-x-[calc(100%-40px)]' : 'translate-x-0') : 'translate-x-full'
         }`}
       >
+        {/* 折叠状态标签 - 始终显示在面板左侧边缘 */}
+        {visible && (
+          <button
+            onClick={() => setIsCollapsed(false)}
+            className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full flex flex-col items-center justify-center w-10 h-32 bg-purple-600 text-white rounded-l-lg shadow-lg hover:bg-purple-700 transition-colors cursor-pointer ${
+              isCollapsed ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            } transition-opacity duration-300`}
+            title="展开预测结果面板"
+          >
+            <ChevronLeft className="w-4 h-4 mb-1" />
+            <span className="text-xs writing-mode-vertical">预测结果</span>
+          </button>
+        )}
         {/* 面板头部 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
           <div>

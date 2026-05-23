@@ -1,0 +1,6 @@
+{
+  "description": "GPU 配置 - 控制模型推理使用的计算设备",
+  "version": "1.0.0",
+  "device": "auto",
+  "cuda_visible_devices": ""
+}

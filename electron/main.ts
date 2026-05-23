@@ -417,9 +417,26 @@ async function startPythonService() {
 
   console.log('启动 Python 服务:', appPyPath, '端口:', pythonServicePort)
 
+  // 读取 GPU 配置，传递给 Python 服务
+  const gpuConfigPath = path.join(__dirname, '..', 'config', 'gpu_config.json')
+  const gpuEnv: Record<string, string> = {}
+  try {
+    if (fs.existsSync(gpuConfigPath)) {
+      const gpuConfig = JSON.parse(fs.readFileSync(gpuConfigPath, 'utf-8'))
+      if (gpuConfig.cuda_visible_devices) {
+        gpuEnv.CUDA_VISIBLE_DEVICES = gpuConfig.cuda_visible_devices
+      }
+      if (gpuConfig.device && gpuConfig.device !== 'auto') {
+        gpuEnv.NAR_DEVICE = gpuConfig.device
+      }
+    }
+  } catch (err) {
+    console.warn('读取 GPU 配置失败:', err)
+  }
+
   pythonProcess = spawn(pythonCmd, [appPyPath], {
     cwd: pythonServicePath,
-    env: { ...process.env, PYTHONPATH: pythonServicePath, PORT: String(pythonServicePort) }
+    env: { ...process.env, PYTHONPATH: pythonServicePath, PORT: String(pythonServicePort), ...gpuEnv }
   })
 
   pythonProcess.stdout?.on('data', (data) => console.log(`Python: ${data}`))

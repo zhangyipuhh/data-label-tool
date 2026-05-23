@@ -75,16 +75,115 @@ class NARInference:
         )
         self.logger = logging.getLogger(__name__)
 
+    def _load_gpu_config(self) -> dict:
+        """加载 GPU 配置文件
+
+        返回:
+            dict: GPU 配置字典，包含 device 和 cuda_visible_devices 等字段
+
+        异常:
+            无，配置文件不存在或格式错误时返回默认配置
+        """
+        _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(_BASE_DIR, "..", "config", "gpu_config.json")
+        default_config = {"device": "auto", "cuda_visible_devices": ""}
+
+        if not os.path.exists(config_path):
+            self.logger.info(f"GPU 配置文件不存在，使用默认配置: {default_config}")
+            return default_config
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            self.logger.info(f"GPU 配置加载成功: {config}")
+            return config
+        except (json.JSONDecodeError, IOError) as e:
+            self.logger.warning(f"GPU 配置文件读取失败: {e}，使用默认配置")
+            return default_config
+
+    def _apply_cuda_visible_devices(self, cuda_visible_devices: str):
+        """设置 CUDA_VISIBLE_DEVICES 环境变量
+
+        参数:
+            cuda_visible_devices: CUDA 可见设备字符串，如 "0" 或 "0,1"
+                为空时不做任何设置
+        """
+        if cuda_visible_devices:
+            os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
+            self.logger.info(f"设置 CUDA_VISIBLE_DEVICES = {cuda_visible_devices}")
+
+    def _verify_gpu_usage(self):
+        """验证模型是否真正在 GPU 上运行
+
+        检查模型所在设备、GPU 显存占用等信息，
+        并输出详细日志帮助诊断 GPU 使用问题
+        """
+        if not torch.cuda.is_available():
+            self.logger.warning("CUDA 不可用，模型运行在 CPU 上")
+            return
+
+        # 检查模型设备
+        model_device = next(self.model.parameters()).device
+        self.logger.info(f"[GPU 验证] 模型所在设备: {model_device}")
+
+        # 检查 CUDA 版本
+        cuda_version = torch.version.cuda
+        self.logger.info(f"[GPU 验证] PyTorch CUDA 版本: {cuda_version}")
+        if cuda_version is None:
+            self.logger.warning("[GPU 验证] PyTorch CUDA 版本为 None，可能安装的是 CPU 版本 PyTorch！")
+            self.logger.warning("[GPU 验证] 请使用以下命令安装 GPU 版本:")
+            self.logger.warning("[GPU 验证]   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128")
+
+        # 检查 GPU 显存占用
+        current_device = torch.cuda.current_device()
+        allocated_mb = torch.cuda.memory_allocated(current_device) / 1024 / 1024
+        reserved_mb = torch.cuda.memory_reserved(current_device) / 1024 / 1024
+        total_mb = torch.cuda.get_device_properties(current_device).total_memory / 1024 / 1024
+        self.logger.info(f"[GPU 验证] GPU 显存 - 已分配: {allocated_mb:.1f}MB, 已预留: {reserved_mb:.1f}MB, 总量: {total_mb:.1f}MB")
+        self.logger.info(f"[GPU 验证] GPU 设备名: {torch.cuda.get_device_name(current_device)}")
+
+        if allocated_mb > 0:
+            self.logger.info("[GPU 验证] ✓ 模型已成功加载到 GPU，显存已分配")
+        else:
+            self.logger.warning("[GPU 验证] ✗ GPU 显存分配为 0，模型可能未真正在 GPU 上运行！")
+
     def load_model(self):
-        """加载 NAR 模型和 tokenizer"""
+        """加载 NAR 模型和 tokenizer
+
+        加载流程：
+        1. 读取 GPU 配置文件
+        2. 应用 CUDA_VISIBLE_DEVICES 设置
+        3. 根据配置或自动检测选择计算设备
+        4. 加载模型和 tokenizer
+        5. 将模型移至目标设备并验证 GPU 使用情况
+
+        异常:
+            FileNotFoundError: 模型路径不存在时抛出
+        """
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(f"模型路径不存在: {self.model_path}")
 
         # 检测模型格式
         has_full_model = os.path.exists(os.path.join(self.model_path, 'config.json'))
 
+        # 加载 GPU 配置
+        gpu_config = self._load_gpu_config()
+
+        # 应用 CUDA_VISIBLE_DEVICES（必须在 torch.cuda 调用之前设置）
+        cuda_visible_devices = gpu_config.get("cuda_visible_devices", "")
+        self._apply_cuda_visible_devices(cuda_visible_devices)
+
+        # 确定计算设备
+        config_device = gpu_config.get("device", "auto")
+        env_device = os.environ.get("NAR_DEVICE", None)
+
+        # 优先级：构造参数 > 环境变量 > 配置文件 > 自动检测
         if self.device is None:
-            if torch.cuda.is_available():
+            effective_device = env_device or (config_device if config_device != "auto" else None)
+            if effective_device:
+                self.device = torch.device(effective_device)
+                self.logger.info(f"使用指定设备: {self.device} (来源: {'环境变量 NAR_DEVICE' if env_device else '配置文件'})")
+            elif torch.cuda.is_available():
                 self.device = torch.device("cuda")
                 self.logger.info(f"使用 GPU: {torch.cuda.get_device_name(0)}")
             else:
@@ -92,6 +191,7 @@ class NARInference:
                 self.logger.info("使用 CPU")
         else:
             self.device = torch.device(self.device)
+            self.logger.info(f"使用指定设备: {self.device}")
 
         # 加载完整模型
         self.logger.info("加载完整 NAR 模型")
@@ -106,6 +206,10 @@ class NARInference:
 
         self.model.to(self.device)
         self.model.eval()
+
+        # 验证 GPU 使用情况
+        self._verify_gpu_usage()
+
         self.logger.info("NAR 模型加载完成")
 
     def _find_abbr_positions(self, input_ids: List[int]) -> List[int]:
@@ -219,9 +323,15 @@ class BERTModel:
         logger.info("[DEBUG] BERTModel 初始化开始")
         logger.info("=" * 60)
 
+        # 读取环境变量中的设备配置
+        env_device = os.environ.get("NAR_DEVICE", None)
+        if env_device:
+            logger.info(f"[DEBUG] 从环境变量 NAR_DEVICE 读取设备: {env_device}")
+
         logger.info("[DEBUG] 正在加载 NAR 模型...")
         self.inference = NARInference(
             model_path=os.path.join(os.path.dirname(__file__), "..", "models", "abbr_mapper_nar"),
+            device=env_device,
             verbose=True
         )
         self.inference.load_model()
@@ -409,6 +519,44 @@ def health_check():
         "model_loaded": model is not None,
         "version": "1.0.0"
     })
+
+
+@app.route('/gpu_info', methods=['GET'])
+def gpu_info():
+    """GPU 诊断接口
+
+    返回当前 GPU 使用状态，包括 CUDA 可用性、设备名称、
+    CUDA 版本、模型所在设备、显存占用等信息。
+
+    返回:
+        JSON 格式的 GPU 状态信息
+    """
+    info = {
+        "cuda_available": torch.cuda.is_available(),
+        "pytorch_version": torch.__version__,
+        "cuda_version": str(torch.version.cuda) if torch.version.cuda else None,
+        "cudnn_available": torch.backends.cudnn.is_available(),
+    }
+
+    if torch.cuda.is_available():
+        current_device = torch.cuda.current_device()
+        info.update({
+            "device_name": torch.cuda.get_device_name(current_device),
+            "device_count": torch.cuda.device_count(),
+            "current_device": current_device,
+            "memory_allocated_mb": round(torch.cuda.memory_allocated(current_device) / 1024 / 1024, 1),
+            "memory_reserved_mb": round(torch.cuda.memory_reserved(current_device) / 1024 / 1024, 1),
+            "memory_total_mb": round(torch.cuda.get_device_properties(current_device).total_memory / 1024 / 1024, 1),
+        })
+
+    # 模型设备信息
+    if model is not None and model.inference.model is not None:
+        model_device = next(model.inference.model.parameters()).device
+        info["model_device"] = str(model_device)
+    else:
+        info["model_device"] = None
+
+    return jsonify(info)
 
 
 @app.route('/predict', methods=['POST'])
