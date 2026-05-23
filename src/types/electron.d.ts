@@ -413,6 +413,58 @@ interface ElectronAPI {
    */
   getAppVersion: () => Promise<{ version: string }>
 
+  // ========== 设置相关 ==========
+
+  /**
+   * 监听打开全局设置事件
+   * @param callback - 回调函数
+   */
+  onOpenSettings: (callback: () => void) => void
+  offOpenSettings: () => void
+
+  /**
+   * 读取 GPU 配置
+   * @returns Promise<{ success: boolean; config?: { device: string; cuda_visible_devices: string }; message?: string }>
+   */
+  readGpuConfig: () => Promise<{
+    success: boolean
+    config?: {
+      device: string
+      cuda_visible_devices: string
+    }
+    message?: string
+  }>
+
+  /**
+   * 保存 GPU 配置
+   * @param config - GPU 配置对象
+   * @returns Promise<{ success: boolean; message?: string }>
+   */
+  saveGpuConfig: (config: { device: string; cuda_visible_devices: string }) => Promise<{
+    success: boolean
+    message?: string
+  }>
+
+  /**
+   * 读取过滤规则配置
+   * @returns Promise<{ success: boolean; config?: any; message?: string }>
+   */
+  readFilterConfig: () => Promise<{
+    success: boolean
+    config?: any
+    message?: string
+  }>
+
+  /**
+   * 保存过滤规则配置
+   * @param config - 过滤规则配置对象
+   * @returns Promise<{ success: boolean; message?: string }>
+   */
+  saveFilterConfig: (config: any) => Promise<{
+    success: boolean
+    message?: string
+  }>
+
   // ========== 事件监听 ==========
 
   /**

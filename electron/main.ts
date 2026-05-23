@@ -575,6 +575,17 @@ function createWindow() {
           }
         }
       ]
+    },
+    {
+      label: '设置',
+      submenu: [
+        {
+          label: '全局设置',
+          click: () => {
+            mainWindow?.webContents.send('open-settings')
+          }
+        }
+      ]
     }
   ]
 
@@ -1386,6 +1397,108 @@ ipcMain.handle('get-machine-fingerprint', async (): Promise<{ success: boolean; 
       success: false,
       message: `获取机器指纹失败: ${error}`
     }
+  }
+})
+
+// ========== 设置相关 IPC 处理器 ==========
+
+/**
+ * 读取 GPU 配置
+ * @returns GPU 配置对象
+ */
+ipcMain.handle('read-gpu-config', async (): Promise<{ success: boolean; config?: any; message?: string }> => {
+  try {
+    const configPath = path.join(__dirname, '..', 'config', 'gpu_config.json')
+    if (!fs.existsSync(configPath)) {
+      return { success: true, config: { device: 'auto', cuda_visible_devices: '' } }
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    return { success: true, config }
+  } catch (error) {
+    return { success: false, message: `读取 GPU 配置失败: ${error}` }
+  }
+})
+
+/**
+ * 保存 GPU 配置
+ * @param _ - 事件对象
+ * @param config - GPU 配置对象
+ * @returns 保存结果
+ */
+ipcMain.handle('save-gpu-config', async (_, config: any): Promise<{ success: boolean; message?: string }> => {
+  try {
+    const configPath = path.join(__dirname, '..', 'config', 'gpu_config.json')
+    const existingConfig = fs.existsSync(configPath)
+      ? JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+      : {}
+    const newConfig = {
+      ...existingConfig,
+      device: config.device ?? existingConfig.device ?? 'auto',
+      cuda_visible_devices: config.cuda_visible_devices ?? existingConfig.cuda_visible_devices ?? ''
+    }
+    fs.writeFileSync(configPath, JSON.stringify(newConfig, null, 2), 'utf-8')
+    return { success: true, message: 'GPU 配置已保存，重启应用后生效' }
+  } catch (error) {
+    return { success: false, message: `保存 GPU 配置失败: ${error}` }
+  }
+})
+
+/**
+ * 读取过滤规则配置
+ * @returns 过滤规则配置对象
+ */
+ipcMain.handle('read-filter-config', async (): Promise<{ success: boolean; config?: any; message?: string }> => {
+  try {
+    const configPath = path.join(__dirname, '..', 'config', 'filter_config.json')
+    if (!fs.existsSync(configPath)) {
+      return {
+        success: true,
+        config: {
+          description: '缩写识别过滤配置',
+          version: '1.0.0',
+          rules: { exact_match: { description: '精确匹配替换规则', items: [] }, prefix_match: { description: '前缀匹配规则', prefixes: [] } }
+        }
+      }
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    return { success: true, config }
+  } catch (error) {
+    return { success: false, message: `读取过滤规则配置失败: ${error}` }
+  }
+})
+
+/**
+ * 保存过滤规则配置
+ * 保存后通知 Python 服务热重载配置
+ * @param _ - 事件对象
+ * @param config - 过滤规则配置对象
+ * @returns 保存结果
+ */
+ipcMain.handle('save-filter-config', async (_, config: any): Promise<{ success: boolean; message?: string }> => {
+  try {
+    const configPath = path.join(__dirname, '..', 'config', 'filter_config.json')
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+
+    // 通知 Python 服务重载配置
+    try {
+      const port = process.env.PORT || pythonServicePort || 5000
+      const http = await import('http')
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(`http://127.0.0.1:${port}/api/reload-config`, { method: 'POST' }, (res) => {
+          res.on('data', () => {})
+          res.on('end', resolve)
+        })
+        req.on('error', reject)
+        req.setTimeout(3000, () => { req.destroy(); reject(new Error('超时')) })
+        req.end()
+      })
+    } catch (reloadErr) {
+      console.warn('通知 Python 服务重载配置失败（服务可能未启动）:', reloadErr)
+    }
+
+    return { success: true, message: '过滤规则配置已保存并重载' }
+  } catch (error) {
+    return { success: false, message: `保存过滤规则配置失败: ${error}` }
   }
 })
 

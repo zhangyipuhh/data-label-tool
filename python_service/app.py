@@ -20,6 +20,7 @@ from transformers import BertTokenizer, BertForTokenClassification
 
 # 导入过滤模块
 from text_filter import get_text_filter, FilterResultType
+from config_manager import get_config_manager
 
 # 设置 stdout/stderr 编码为 utf-8，解决 Windows 终端中文乱码问题
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -647,6 +648,31 @@ def predict_stream():
     except Exception as e:
         logger.error(f"流式推理失败: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/reload-config', methods=['POST'])
+def reload_config():
+    """重载过滤配置接口
+
+    通知 ConfigManager 重新读取配置文件，实现热重载。
+    修改 filter_config.json 后调用此接口即可生效，无需重启服务。
+
+    返回:
+        JSON 格式的重载结果，包含成功状态和规则数量信息
+    """
+    try:
+        config = get_config_manager()
+        config.reload()
+        logger.info("过滤配置已重载")
+        return jsonify({
+            "success": True,
+            "message": "配置已重载",
+            "exact_match_count": len(config.get_all_exact_rules()),
+            "prefix_count": len(config.get_all_prefixes())
+        })
+    except Exception as e:
+        logger.error(f"重载配置失败: {str(e)}")
+        return jsonify({"success": False, "message": f"重载配置失败: {str(e)}"}), 500
 
 
 @app.route('/batch_predict', methods=['POST'])

@@ -5,6 +5,7 @@ import FileExplorer from './components/FileExplorer'
 import ProgressBar from './components/ProgressBar'
 import PredictionPanel, { PredictionResult } from './components/PredictionPanel'
 import FeedbackModal from './components/FeedbackModal'
+import SettingsModal from './components/SettingsModal'
 import ResizableDivider from './components/ResizableDivider'
 import ExcelTabs, { ExcelTab } from './components/ExcelTabs'
 import CloseTabConfirmDialog from './components/CloseTabConfirmDialog'
@@ -106,18 +107,20 @@ interface PredictionRecordMap {
   /** 当前预测的源字段列表（用于关联预测结果和原始输入） */
   const currentPredictionSourceFields = useRef<string[]>([])
 
-  // 辅助：获取当前显示预测面板的Tab
-  const activePredictionTab = tabs.find(tab => tab.showPredictionPanel) || null
+  // 辅助：获取当前激活Tab的预测面板状态（仅当激活Tab有预测面板时才显示）
+  const activePredictionTab = tabs.find(tab => tab.id === activeTabId && tab.showPredictionPanel) || null
 
   // ========== 反馈弹窗状态 ==========
   /** 反馈弹窗是否可见 */
   const [feedbackModalVisible, setFeedbackModalVisible] = useState(false)
   /** 反馈弹窗数据 */
-  const [feedbackModalData, setFeedbackModalData] = useState({ 
-    sourceField: '', 
-    predictedResult: '', 
-    index: 0 
+  const [feedbackModalData, setFeedbackModalData] = useState({
+    sourceField: '',
+    predictedResult: '',
+    index: 0
   })
+  /** 全局设置面板是否可见 */
+  const [settingsVisible, setSettingsVisible] = useState(false)
 
   /**
    * 生成唯一批次ID
@@ -997,6 +1000,17 @@ interface PredictionRecordMap {
     }
   }, [handleOpenFolder])
 
+  // 监听主进程系统菜单触发的打开全局设置事件
+  useEffect(() => {
+    if (!isElectron()) return
+    window.electronAPI.onOpenSettings(() => {
+      setSettingsVisible(true)
+    })
+    return () => {
+      window.electronAPI.offOpenSettings?.()
+    }
+  }, [])
+
   // 组件挂载时清理过期的预测数据
   useEffect(() => {
     cleanupOldPredictions()
@@ -1176,6 +1190,13 @@ interface PredictionRecordMap {
         onSave={handleCloseConfirmSave}
         onDiscard={handleCloseConfirmDiscard}
         onCancel={handleCloseConfirmCancel}
+      />
+
+      {/* 全局设置面板 */}
+      <SettingsModal
+        visible={settingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        onMessage={setMessage}
       />
     </div>
   )

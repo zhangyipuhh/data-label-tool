@@ -15,7 +15,8 @@ const eventListenersRegistered = {
   predictProgress: false,
   predictComplete: false,
   predictError: false,
-  folderOpened: false
+  folderOpened: false,
+  openSettings: false
 }
 
 /**
@@ -282,5 +283,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
   offPredictError: () => {
     eventListenersRegistered.predictError = false
     ipcRenderer.removeAllListeners('predict-error')
-  }
+  },
+
+  // ========== 设置相关接口 ==========
+
+  /**
+   * 监听打开全局设置事件
+   * @param callback - 回调函数
+   */
+  onOpenSettings: (callback: () => void) => {
+    if (!eventListenersRegistered.openSettings) {
+      eventListenersRegistered.openSettings = true
+      ipcRenderer.on('open-settings', () => callback())
+    }
+  },
+  offOpenSettings: () => {
+    eventListenersRegistered.openSettings = false
+    ipcRenderer.removeAllListeners('open-settings')
+  },
+
+  /**
+   * 读取 GPU 配置
+   * @returns Promise<{ success: boolean; config?: any; message?: string }>
+   */
+  readGpuConfig: () => ipcRenderer.invoke('read-gpu-config'),
+
+  /**
+   * 保存 GPU 配置
+   * @param config - GPU 配置对象
+   * @returns Promise<{ success: boolean; message?: string }>
+   */
+  saveGpuConfig: (config: { device: string; cuda_visible_devices: string }) =>
+    ipcRenderer.invoke('save-gpu-config', config),
+
+  /**
+   * 读取过滤规则配置
+   * @returns Promise<{ success: boolean; config?: any; message?: string }>
+   */
+  readFilterConfig: () => ipcRenderer.invoke('read-filter-config'),
+
+  /**
+   * 保存过滤规则配置
+   * @param config - 过滤规则配置对象
+   * @returns Promise<{ success: boolean; message?: string }>
+   */
+  saveFilterConfig: (config: any) => ipcRenderer.invoke('save-filter-config', config)
 })
