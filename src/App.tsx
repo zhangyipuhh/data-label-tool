@@ -8,6 +8,7 @@ import FeedbackModal from './components/FeedbackModal'
 import ResizableDivider from './components/ResizableDivider'
 import ExcelTabs, { ExcelTab } from './components/ExcelTabs'
 import CloseTabConfirmDialog from './components/CloseTabConfirmDialog'
+import { savePrediction, getPrediction, cleanupOldPredictions } from './utils/predictionStorage'
 
 /** Excel 数据接口，DataTable 等组件依赖此接口 */
 export interface ExcelData {
@@ -98,18 +99,15 @@ interface PredictionRecordMap {
   const [predictionCurrent, setPredictionCurrent] = useState(0)
   /** 预测总数 */
   const [predictionTotal, setPredictionTotal] = useState(0)
-  /** 预测结果列表 */
-  const [predictionResults, setPredictionResults] = useState<PredictionResult[]>([])
-  /** 是否显示预测结果面板 */
-  const [showPredictionPanel, setShowPredictionPanel] = useState(false)
-  /** 当前选中的预测列索引 */
-  const [selectedPredictionColumn, setSelectedPredictionColumn] = useState<number | null>(null)
-  /** 当前批次ID */
-  const [currentBatchId, setCurrentBatchId] = useState<string>('')
+  /** 当前正在预测的Tab ID */
+  const [predictingTabId, setPredictingTabId] = useState<string | null>(null)
   /** 预测记录ID映射（用于后续更新用户选择） */
   const predictionRecordIds = useRef<PredictionRecordMap>({})
   /** 当前预测的源字段列表（用于关联预测结果和原始输入） */
   const currentPredictionSourceFields = useRef<string[]>([])
+
+  // 辅助：获取当前显示预测面板的Tab
+  const activePredictionTab = tabs.find(tab => tab.showPredictionPanel) || null
 
   // ========== 反馈弹窗状态 ==========
   /** 反馈弹窗是否可见 */
@@ -223,7 +221,10 @@ interface PredictionRecordMap {
         return
       }
 
-      // 4. 创建新Tab
+      // 4. 尝试从localStorage恢复预测数据
+      const savedPrediction = getPrediction(filePath)
+
+      // 5. 创建新Tab
       const newTab: ExcelTab = {
         id: filePath,
         filePath,
@@ -238,7 +239,11 @@ interface PredictionRecordMap {
           sheetIndex: 0
         },
         hasUnsavedChanges: false,
-        selectedColumn: null
+        selectedColumn: null,
+        predictionResults: savedPrediction?.predictionResults || [],
+        showPredictionPanel: savedPrediction?.showPredictionPanel || false,
+        selectedPredictionColumn: savedPrediction?.selectedPredictionColumn ?? null,
+        currentBatchId: savedPrediction?.currentBatchId || ''
       }
 
       setTabs(prev => [...prev, newTab])
@@ -247,6 +252,19 @@ interface PredictionRecordMap {
     } catch (error) {
       const errorMessage = formatError(error)
       setMessage(`❌ 错误: ${errorMessage}`)
+    }
+  }, [tabs])
+
+  /**
+   * 处理Tab切换
+   * 切换时如果新Tab有预测结果，自动显示其预测面板
+   * @param tabId - 要切换到的Tab ID
+   */
+  const handleTabSelect = useCallback((tabId: string) => {
+    setActiveTabId(tabId)
+    const tab = tabs.find(t => t.id === tabId)
+    if (tab) {
+      setSelectedFilePath(tab.filePath)
     }
   }, [tabs])
 
@@ -312,6 +330,17 @@ interface PredictionRecordMap {
    * @param tabId - 要关闭的Tab ID
    */
   const closeTab = (tabId: string) => {
+    // 保存该Tab的预测数据到localStorage
+    const tabToClose = tabs.find(t => t.id === tabId)
+    if (tabToClose) {
+      savePrediction(tabToClose.filePath, {
+        predictionResults: tabToClose.predictionResults,
+        selectedPredictionColumn: tabToClose.selectedPredictionColumn,
+        currentBatchId: tabToClose.currentBatchId,
+        showPredictionPanel: tabToClose.showPredictionPanel
+      })
+    }
+
     setTabs(prev => {
       const newTabs = prev.filter(t => t.id !== tabId)
       // 如果关闭的是当前激活的Tab，切换到相邻Tab
@@ -508,7 +537,7 @@ interface PredictionRecordMap {
       setMessage('❌ 请通过 Electron 启动应用 (npm run dev)')
       return
     }
-    if (!activeTab) {
+    if (!activeTab || !activeTabId) {
       setMessage('❌ 请先加载数据文件')
       return
     }
@@ -533,15 +562,29 @@ interface PredictionRecordMap {
 
       // 生成批次ID
       const batchId = generateBatchId()
-      setCurrentBatchId(batchId)
-      setSelectedPredictionColumn(columnIndex)
+      
+      // 将预测状态保存到当前Tab
+      setTabs(prev => prev.map(tab => {
+        if (tab.id === activeTabId) {
+          return {
+            ...tab,
+            currentBatchId: batchId,
+            selectedPredictionColumn: columnIndex,
+            predictionResults: [],
+            showPredictionPanel: false
+          }
+        }
+        return tab
+      }))
+      
+      // 设置当前正在预测的Tab
+      setPredictingTabId(activeTabId)
       
       // 重置预测状态
       setIsPredicting(true)
       setPredictionProgress(0)
       setPredictionCurrent(0)
       setPredictionTotal(columnValues.length)
-      setPredictionResults([])
       predictionRecordIds.current = {}
       // 保存源字段列表，用于后续关联预测结果
       currentPredictionSourceFields.current = columnValues
@@ -552,10 +595,11 @@ interface PredictionRecordMap {
       await window.electronAPI.predictStream(columnValues, 3)
     } catch (error) {
       setIsPredicting(false)
+      setPredictingTabId(null)
       const errorMessage = formatError(error)
       setMessage(`❌ 预测启动失败: ${errorMessage}`)
     }
-  }, [activeTab])
+  }, [activeTab, activeTabId])
 
   /**
    * 处理预测进度事件
@@ -589,19 +633,30 @@ interface PredictionRecordMap {
       alternatives: data.result.alternatives || []
     }
 
-    // 添加到结果列表
-    setPredictionResults(prev => [...prev, predictionResult])
+    // 将预测结果添加到当前正在预测的Tab中
+    if (predictingTabId) {
+      setTabs(prev => prev.map(tab => {
+        if (tab.id === predictingTabId) {
+          return {
+            ...tab,
+            predictionResults: [...tab.predictionResults, predictionResult]
+          }
+        }
+        return tab
+      }))
+    }
 
     // 保存预测记录到数据库
-    if (activeTab && selectedPredictionColumn !== null) {
+    const predictingTab = tabs.find(t => t.id === predictingTabId)
+    if (predictingTab && predictingTab.selectedPredictionColumn !== null) {
       try {
         const result = await window.electronAPI.savePredictionRecord({
-          batchId: currentBatchId,
+          batchId: predictingTab.currentBatchId,
           sourceField: sourceField,
           predictedResult: data.result.content,
           confidence: data.result.confidence,
-          columnName: activeTab.excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`,
-          fileName: activeTab.excelData.fileName
+          columnName: predictingTab.excelData.headers[predictingTab.selectedPredictionColumn] || `列${predictingTab.selectedPredictionColumn + 1}`,
+          fileName: predictingTab.excelData.fileName
         })
 
         if (result.success && result.id) {
@@ -612,7 +667,7 @@ interface PredictionRecordMap {
         console.error('保存预测记录失败:', error)
       }
     }
-  }, [activeTab, selectedPredictionColumn, currentBatchId])
+  }, [predictingTabId, tabs])
 
   /**
    * 处理预测完成事件
@@ -630,9 +685,34 @@ interface PredictionRecordMap {
   }) => {
     setIsPredicting(false)
     setPredictionProgress(100)
-    setShowPredictionPanel(true)
+    
+    // 显示当前正在预测的Tab的预测面板，并保存预测数据
+    if (predictingTabId) {
+      setTabs(prev => {
+        const updatedTabs = prev.map(tab => {
+          if (tab.id === predictingTabId) {
+            const updatedTab = {
+              ...tab,
+              showPredictionPanel: true
+            }
+            // 保存预测数据到localStorage
+            savePrediction(tab.filePath, {
+              predictionResults: updatedTab.predictionResults,
+              selectedPredictionColumn: updatedTab.selectedPredictionColumn,
+              currentBatchId: updatedTab.currentBatchId,
+              showPredictionPanel: true
+            })
+            return updatedTab
+          }
+          return tab
+        })
+        return updatedTabs
+      })
+    }
+    
+    setPredictingTabId(null)
     setMessage(`✅ 预测完成！共 ${data.total} 条，耗时 ${(data.duration / 1000).toFixed(2)} 秒`)
-  }, [])
+  }, [predictingTabId])
 
   /**
    * 处理预测错误事件
@@ -641,6 +721,7 @@ interface PredictionRecordMap {
    */
   const handlePredictError = useCallback((error: { message: string }) => {
     setIsPredicting(false)
+    setPredictingTabId(null)
     setMessage(`❌ 预测错误: ${error.message}`)
   }, [])
 
@@ -650,6 +731,7 @@ interface PredictionRecordMap {
    */
   const handleCancelPredict = useCallback(() => {
     setIsPredicting(false)
+    setPredictingTabId(null)
     setPredictionProgress(0)
     setMessage('⚠️ 预测已取消')
   }, [])
@@ -663,18 +745,18 @@ interface PredictionRecordMap {
    * @param result - 要应用的预测内容
    */
   const handleApplySingle = useCallback(async (index: number, result: string) => {
-    if (!activeTab || selectedPredictionColumn === null) return
+    if (!activeTab || activeTab.selectedPredictionColumn === null) return
 
-    const sourceField = predictionResults[index]?.sourceField
+    const sourceField = activeTab.predictionResults[index]?.sourceField
     if (!sourceField) return
 
     // 更新数据表中所有匹配的单元格（回填到选中的列）
     const newRows = activeTab.excelData.rows.map(row => {
-      const cellValue = String(row[selectedPredictionColumn] ?? '').trim()
+      const cellValue = String(row[activeTab.selectedPredictionColumn!] ?? '').trim()
       if (cellValue === sourceField) {
         const newRow = [...row]
         // 将结果写入选中的列（原地回填）
-        newRow[selectedPredictionColumn] = result
+        newRow[activeTab.selectedPredictionColumn!] = result
         return newRow
       }
       return row
@@ -704,30 +786,38 @@ interface PredictionRecordMap {
       }
     }
 
-    const columnName = activeTab.excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`
+    // 保存更新后的预测数据到localStorage
+    savePrediction(activeTab.filePath, {
+      predictionResults: activeTab.predictionResults,
+      selectedPredictionColumn: activeTab.selectedPredictionColumn,
+      currentBatchId: activeTab.currentBatchId,
+      showPredictionPanel: activeTab.showPredictionPanel
+    })
+
+    const columnName = activeTab.excelData.headers[activeTab.selectedPredictionColumn] || `列${activeTab.selectedPredictionColumn + 1}`
     setMessage(`✅ 已应用预测结果到"${columnName}"列: ${sourceField} → ${result}`)
-  }, [activeTab, activeTabId, selectedPredictionColumn, predictionResults])
+  }, [activeTab, activeTabId])
 
   /**
    * 批量应用所有预测结果到源数据表
    * 将所有预测结果回填到对应的单元格
    */
   const handleApplyAll = useCallback(async () => {
-    if (!activeTab || selectedPredictionColumn === null || predictionResults.length === 0) return
+    if (!activeTab || activeTab.selectedPredictionColumn === null || activeTab.predictionResults.length === 0) return
 
     // 构建源字段到预测结果的映射
     const resultMap = new Map<string, string>()
-    predictionResults.forEach(result => {
+    activeTab.predictionResults.forEach(result => {
       resultMap.set(result.sourceField, result.content)
     })
 
     // 更新所有匹配的行（回填到选中的列）
     const newRows = activeTab.excelData.rows.map(row => {
-      const cellValue = String(row[selectedPredictionColumn] ?? '').trim()
+      const cellValue = String(row[activeTab.selectedPredictionColumn!] ?? '').trim()
       if (resultMap.has(cellValue)) {
         const newRow = [...row]
         // 将结果写入选中的列（原地回填）
-        newRow[selectedPredictionColumn] = resultMap.get(cellValue)!
+        newRow[activeTab.selectedPredictionColumn!] = resultMap.get(cellValue)!
         return newRow
       }
       return row
@@ -745,7 +835,7 @@ interface PredictionRecordMap {
     }))
 
     // 批量更新数据库中的用户选择
-    const updatePromises = predictionResults.map(async (result, index) => {
+    const updatePromises = activeTab.predictionResults.map(async (result, index) => {
       const recordId = predictionRecordIds.current[index]
       if (recordId) {
         try {
@@ -761,9 +851,17 @@ interface PredictionRecordMap {
 
     await Promise.all(updatePromises)
 
-    const columnName = activeTab.excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`
-    setMessage(`✅ 已批量应用 ${predictionResults.length} 个预测结果到"${columnName}"列`)
-  }, [activeTab, activeTabId, selectedPredictionColumn, predictionResults])
+    // 保存更新后的预测数据到localStorage
+    savePrediction(activeTab.filePath, {
+      predictionResults: activeTab.predictionResults,
+      selectedPredictionColumn: activeTab.selectedPredictionColumn,
+      currentBatchId: activeTab.currentBatchId,
+      showPredictionPanel: activeTab.showPredictionPanel
+    })
+
+    const columnName = activeTab.excelData.headers[activeTab.selectedPredictionColumn] || `列${activeTab.selectedPredictionColumn + 1}`
+    setMessage(`✅ 已批量应用 ${activeTab.predictionResults.length} 个预测结果到"${columnName}"列`)
+  }, [activeTab, activeTabId])
 
   // ========== 反馈功能 ==========
 
@@ -773,7 +871,7 @@ interface PredictionRecordMap {
    * @param index - 结果索引
    */
   const handleFeedbackClick = useCallback((index: number) => {
-    const result = predictionResults[index]
+    const result = activeTab?.predictionResults[index]
     if (!result) return
 
     setFeedbackModalData({
@@ -782,7 +880,7 @@ interface PredictionRecordMap {
       index
     })
     setFeedbackModalVisible(true)
-  }, [predictionResults])
+  }, [activeTab])
 
   /**
    * 提交反馈（带实际内容）
@@ -800,7 +898,7 @@ interface PredictionRecordMap {
       const recordId = predictionRecordIds.current[index]
       await window.electronAPI.saveFeedbackRecord({
         predictionId: recordId,
-        batchId: currentBatchId,
+        batchId: activeTab?.currentBatchId || '',
         sourceField,
         predictedResult,
         actualContent: finalActualContent,
@@ -809,28 +907,47 @@ interface PredictionRecordMap {
       })
       
       // 更新预测结果面板：将反馈内容更新到对应位置，置信度改为100%
-      setPredictionResults(prev => {
-        const newResults = [...prev]
-        const currentResult = newResults[index]
-        if (currentResult) {
-          // 构建新的备选结果数组：将反馈内容作为最高置信度项插入首位，并去重
-          const filteredAlternatives = currentResult.alternatives.filter(
-            a => a.content !== finalActualContent
-          )
-          const newAlternatives = [
-            { content: finalActualContent, confidence: 1.0 },
-            ...filteredAlternatives
-          ]
-          
-          newResults[index] = {
-            ...currentResult,
-            content: finalActualContent,
-            confidence: 1.0,
-            alternatives: newAlternatives
-          }
-        }
-        return newResults
-      })
+      if (activeTabId) {
+        setTabs(prev => {
+          const updatedTabs = prev.map(tab => {
+            if (tab.id === activeTabId) {
+              const newResults = [...tab.predictionResults]
+              const currentResult = newResults[index]
+              if (currentResult) {
+                // 构建新的备选结果数组：将反馈内容作为最高置信度项插入首位，并去重
+                const filteredAlternatives = currentResult.alternatives.filter(
+                  a => a.content !== finalActualContent
+                )
+                const newAlternatives = [
+                  { content: finalActualContent, confidence: 1.0 },
+                  ...filteredAlternatives
+                ]
+                
+                newResults[index] = {
+                  ...currentResult,
+                  content: finalActualContent,
+                  confidence: 1.0,
+                  alternatives: newAlternatives
+                }
+              }
+              const updatedTab = {
+                ...tab,
+                predictionResults: newResults
+              }
+              // 保存更新后的预测数据到localStorage
+              savePrediction(tab.filePath, {
+                predictionResults: updatedTab.predictionResults,
+                selectedPredictionColumn: updatedTab.selectedPredictionColumn,
+                currentBatchId: updatedTab.currentBatchId,
+                showPredictionPanel: updatedTab.showPredictionPanel
+              })
+              return updatedTab
+            }
+            return tab
+          })
+          return updatedTabs
+        })
+      }
       
       setMessage(isCorrect ? '✅ 已确认预测正确' : '✅ 已提交反馈')
     } catch (error) {
@@ -839,7 +956,7 @@ interface PredictionRecordMap {
     }
     
     setFeedbackModalVisible(false)
-  }, [feedbackModalData, currentBatchId, activeTab])
+  }, [feedbackModalData, activeTab, activeTabId])
 
   /**
    * 关闭反馈弹窗
@@ -879,6 +996,11 @@ interface PredictionRecordMap {
       window.electronAPI.offFolderOpened?.()
     }
   }, [handleOpenFolder])
+
+  // 组件挂载时清理过期的预测数据
+  useEffect(() => {
+    cleanupOldPredictions()
+  }, [])
 
   // 监听流式预测事件 - 只注册一次
   useEffect(() => {
@@ -957,7 +1079,7 @@ interface PredictionRecordMap {
           <ExcelTabs
             tabs={tabs}
             activeTabId={activeTabId}
-            onTabSelect={setActiveTabId}
+            onTabSelect={handleTabSelect}
             onTabClose={handleCloseTab}
           />
 
@@ -1021,14 +1143,20 @@ interface PredictionRecordMap {
 
       {/* 预测结果面板 */}
       <PredictionPanel
-        results={predictionResults}
-        visible={showPredictionPanel}
-        onClose={() => setShowPredictionPanel(false)}
+        results={activePredictionTab?.predictionResults || []}
+        visible={!!activePredictionTab}
+        onClose={() => {
+          if (activePredictionTab) {
+            setTabs(prev => prev.map(tab =>
+              tab.id === activePredictionTab.id ? { ...tab, showPredictionPanel: false } : tab
+            ))
+          }
+        }}
         onApplySingle={handleApplySingle}
         onApplyAll={handleApplyAll}
         onFeedback={handleFeedbackClick}
-        columnName={selectedPredictionColumn !== null && activeTab 
-          ? (activeTab.excelData.headers[selectedPredictionColumn] || `列${selectedPredictionColumn + 1}`) 
+        columnName={activePredictionTab?.selectedPredictionColumn !== null && activePredictionTab
+          ? (activePredictionTab.excelData.headers[activePredictionTab.selectedPredictionColumn] || `列${activePredictionTab.selectedPredictionColumn + 1}`)
           : ''}
       />
 

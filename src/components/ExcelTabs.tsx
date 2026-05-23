@@ -1,5 +1,6 @@
 import React from 'react'
 import { FileSpreadsheet, X } from 'lucide-react'
+import { PredictionResult } from './PredictionPanel'
 
 /**
  * Excel Tab数据接口
@@ -19,6 +20,11 @@ export interface ExcelTab {
   }
   hasUnsavedChanges: boolean
   selectedColumn: number | null
+  // 预测相关字段，每个Excel文件拥有独立的预测结果
+  predictionResults: PredictionResult[]      // 该文件的预测结果列表
+  showPredictionPanel: boolean               // 是否显示预测面板
+  selectedPredictionColumn: number | null    // 当前预测的列索引
+  currentBatchId: string                     // 当前预测批次ID
 }
 
 /**
@@ -61,6 +67,10 @@ const ExcelTabs: React.FC<ExcelTabsProps> = ({ tabs, activeTabId, onTabSelect, o
           >
             <FileSpreadsheet className="w-4 h-4 flex-shrink-0" />
             <span className="truncate flex-1">{tab.fileName}</span>
+            {/* 预测结果指示器 */}
+            {tab.predictionResults.length > 0 && (
+              <span className="w-2 h-2 rounded-full bg-purple-400 flex-shrink-0" title="有预测结果" />
+            )}
             {tab.hasUnsavedChanges && (
               <span className="w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0" title="未保存的更改" />
             )}

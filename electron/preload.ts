@@ -134,6 +134,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getFeedbackStats: () => ipcRenderer.invoke('get-feedback-stats'),
   exportFeedback: (format: 'json' | 'csv') => ipcRenderer.invoke('export-feedback', format),
 
+  /**
+   * 导出反馈报告为 Excel
+   * @returns Promise<{ success: boolean; filePath?: string; message?: string }>
+   */
+  exportFeedbackReport: () => ipcRenderer.invoke('export-feedback-report'),
+
   // 应用信息
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 

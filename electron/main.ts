@@ -499,6 +499,82 @@ function createWindow() {
           click: () => app.quit()
         }
       ]
+    },
+    {
+      label: '导出',
+      submenu: [
+        {
+          label: '反馈报告',
+          click: async () => {
+            try {
+              if (!feedbackDb) {
+                dialog.showErrorBox('错误', '反馈数据库未初始化')
+                return
+              }
+
+              const rows = feedbackDb.prepare(
+                'SELECT id, source_field, predicted_result, actual_content, created_at FROM feedback_records ORDER BY created_at DESC'
+              ).all() as Array<{
+                id: number
+                source_field: string
+                predicted_result: string
+                actual_content: string
+                created_at: string
+              }>
+
+              if (rows.length === 0) {
+                dialog.showMessageBox(mainWindow!, {
+                  type: 'info',
+                  title: '导出反馈报告',
+                  message: '暂无反馈记录可导出'
+                })
+                return
+              }
+
+              const now = new Date()
+              const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`
+
+              const result = await dialog.showSaveDialog(mainWindow!, {
+                title: '导出反馈报告',
+                defaultPath: `feedback_report_${timestamp}.xlsx`,
+                filters: [
+                  { name: 'Excel 文件', extensions: ['xlsx'] }
+                ]
+              })
+
+              if (result.canceled || !result.filePath) return
+
+              const excelData = [
+                ['序号', '导出源字段', '预测值', '实际值', '时间'],
+                ...rows.map(row => [
+                  row.id,
+                  row.source_field,
+                  row.predicted_result,
+                  row.actual_content,
+                  row.created_at
+                ])
+              ]
+
+              const worksheet = XLSX.utils.aoa_to_sheet(excelData)
+              const workbook = XLSX.utils.book_new()
+              XLSX.utils.book_append_sheet(workbook, worksheet, '反馈报告')
+
+              const wbout = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+              fs.writeFileSync(result.filePath, wbout)
+
+              dialog.showMessageBox(mainWindow!, {
+                type: 'info',
+                title: '导出成功',
+                message: `已成功导出 ${rows.length} 条反馈记录`,
+                detail: `保存路径: ${result.filePath}`
+              })
+            } catch (error) {
+              console.error('导出反馈报告失败:', error)
+              dialog.showErrorBox('导出失败', `导出反馈报告时发生错误: ${error}`)
+            }
+          }
+        }
+      ]
     }
   ]
 

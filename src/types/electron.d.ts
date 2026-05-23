@@ -352,6 +352,16 @@ interface ElectronAPI {
    */
   exportFeedback: (format: 'json' | 'csv') => Promise<any>
 
+  /**
+   * 导出反馈报告为 Excel
+   * @returns Promise<{ success: boolean; filePath?: string; message?: string }>
+   */
+  exportFeedbackReport: () => Promise<{
+    success: boolean
+    filePath?: string
+    message?: string
+  }>
+
   // ========== 数据库加密 ==========
 
   /**
