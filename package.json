@@ -81,7 +81,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "数据标注工具",
-      "license": "LICENSE.txt"
+      "license": "LICENSE.txt",
+      "useZip": true
     },
     "mac": {
       "target": [
