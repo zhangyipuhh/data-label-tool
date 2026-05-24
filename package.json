@@ -73,7 +73,10 @@
           ]
         }
       ],
-      "signingHashAlgorithms": [],
+      "sign": false,
+      "signtoolOptions": {
+        "signingHashAlgorithms": []
+      },
       "forceCodeSigning": false
     },
     "nsis": {
