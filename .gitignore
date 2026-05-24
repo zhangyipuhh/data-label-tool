@@ -21,7 +21,7 @@ docs/
 # 环境变量
 .env
 .env.local
-
+.cache/
 # IDE
 .vscode/
 .idea/

@@ -13,9 +13,6 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
-  "electronDownload": {
-    "cache": "./.electron-cache"
-  },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
     "lucide-react": "^0.344.0",
@@ -76,10 +73,7 @@
           ]
         }
       ],
-      "forceCodeSigning": false,
-      "signtoolOptions": {
-        "sign": "./build/customSign.js"
-      }
+      "forceCodeSigning": false
     },
     "nsis": {
       "oneClick": false,
