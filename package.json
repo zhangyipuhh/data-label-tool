@@ -73,8 +73,10 @@
           ]
         }
       ],
-      "sign": null,
-      "forceCodeSigning": false
+      "forceCodeSigning": false,
+      "signtoolOptions": {
+        "sign": "./build/customSign.js"
+      }
     },
     "nsis": {
       "oneClick": false,
