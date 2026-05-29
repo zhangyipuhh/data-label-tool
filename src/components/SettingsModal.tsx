@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { X, Cpu, Filter, Plus, Trash2, Save, AlertTriangle } from 'lucide-react'
+import { X, Cpu, Filter, Plus, Trash2, Save, AlertTriangle, Terminal } from 'lucide-react'
 
 /**
  * 设置面板导航项类型
  */
-type SettingsTab = 'gpu' | 'filter'
+type SettingsTab = 'gpu' | 'filter' | 'python'
 
 /**
  * 精确匹配规则项接口
@@ -24,6 +24,16 @@ interface ExactMatchItem {
 interface GpuConfig {
   device: string
   cuda_visible_devices: string
+}
+
+/**
+ * Python 环境配置接口
+ * @property pythonPath - Python 解释器路径
+ * @property sitePackagesPath - site-packages 目录路径
+ */
+interface PythonEnvConfig {
+  pythonPath: string
+  sitePackagesPath: string
 }
 
 /**
@@ -65,6 +75,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [prefixes, setPrefixes] = useState<string[]>([])
   const [filterLoading, setFilterLoading] = useState(false)
 
+  // Python 环境配置状态
+  const [pythonEnvConfig, setPythonEnvConfig] = useState<PythonEnvConfig>({ pythonPath: '', sitePackagesPath: '' })
+  const [pythonEnvLoading, setPythonEnvLoading] = useState(false)
+
   // 重启提示状态
   const [showRestartHint, setShowRestartHint] = useState(false)
 
@@ -90,6 +104,28 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const loadConfigs = async () => {
     await loadGpuConfig()
     await loadFilterConfig()
+    await loadPythonEnvConfig()
+  }
+
+  /**
+   * 加载 Python 环境配置
+   */
+  const loadPythonEnvConfig = async () => {
+    if (!window.electronAPI) return
+    try {
+      setPythonEnvLoading(true)
+      const result = await window.electronAPI.readPythonEnvConfig()
+      if (result.success && result.config) {
+        setPythonEnvConfig({
+          pythonPath: result.config.pythonPath || '',
+          sitePackagesPath: result.config.sitePackagesPath || ''
+        })
+      }
+    } catch (error) {
+      console.error('加载 Python 环境配置失败:', error)
+    } finally {
+      setPythonEnvLoading(false)
+    }
   }
 
   /**
@@ -247,13 +283,36 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   }
 
   /**
+   * 保存 Python 环境配置
+   */
+  const handleSavePythonEnv = async () => {
+    if (!window.electronAPI) return
+    try {
+      setPythonEnvLoading(true)
+      const result = await window.electronAPI.savePythonEnvConfig(pythonEnvConfig)
+      if (result.success) {
+        onMessage('✅ Python 环境配置已保存，重启应用后生效')
+        setShowRestartHint(true)
+      } else {
+        onMessage(`❌ 保存 Python 环境配置失败: ${result.message}`)
+      }
+    } catch (error) {
+      onMessage(`❌ 保存 Python 环境配置失败: ${error}`)
+    } finally {
+      setPythonEnvLoading(false)
+    }
+  }
+
+  /**
    * 处理保存按钮点击
    */
   const handleSave = () => {
     if (activeTab === 'gpu') {
       handleSaveGpu()
-    } else {
+    } else if (activeTab === 'filter') {
       handleSaveFilter()
+    } else {
+      handleSavePythonEnv()
     }
   }
 
@@ -325,6 +384,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 <Filter className="w-4 h-4" />
                 过滤规则
               </button>
+              <button
+                onClick={() => setActiveTab('python')}
+                className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+                  activeTab === 'python'
+                    ? 'bg-blue-50 text-blue-700 font-medium'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
+                }`}
+              >
+                <Terminal className="w-4 h-4" />
+                Python 环境
+              </button>
             </nav>
           </div>
 
@@ -384,7 +454,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
               </div>
-            ) : (
+            ) : activeTab === 'filter' ? (
               /* 过滤规则设置内容 */
               <div className="space-y-6">
                 {/* 精确匹配规则 */}
@@ -484,7 +554,64 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   <p className="text-xs text-green-600">过滤规则保存后立即生效，无需重启应用</p>
                 </div>
               </div>
-            )}
+            ) : activeTab === 'python' ? (
+              /* Python 环境配置内容 */
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Python 解释器路径
+                  </label>
+                  <input
+                    type="text"
+                    value={pythonEnvConfig.pythonPath}
+                    onChange={(e) => setPythonEnvConfig({ ...pythonEnvConfig, pythonPath: e.target.value })}
+                    placeholder="如: C:\\Python311\\python.exe（可选）"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">
+                    指定客户端 Python 解释器路径，留空则使用系统默认 Python
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    site-packages 目录路径
+                  </label>
+                  <input
+                    type="text"
+                    value={pythonEnvConfig.sitePackagesPath}
+                    onChange={(e) => setPythonEnvConfig({ ...pythonEnvConfig, sitePackagesPath: e.target.value })}
+                    placeholder="如: C:\\Python311\\Lib\\site-packages"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">
+                    指定包含 torch、transformers 等依赖的 site-packages 目录路径，打包后的程序将通过 PYTHONPATH 加载这些依赖
+                  </p>
+                </div>
+
+                {showRestartHint && (
+                  <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-amber-700">
+                      <p className="font-medium">需要重启应用才能生效</p>
+                      <p className="text-xs mt-0.5">Python 环境配置在应用启动时加载，修改后请关闭并重新打开应用</p>
+                    </div>
+                  </div>
+                )}
+
+                {!showRestartHint && (
+                  <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <AlertTriangle className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-blue-600">
+                      <p>配置说明：</p>
+                      <p className="mt-1">1. 安装包默认不包含 torch、transformers 等大体积依赖</p>
+                      <p>2. 请在客户端自行安装：pip install torch torchvision torchaudio transformers</p>
+                      <p>3. 在此配置 site-packages 路径，让程序能够找到已安装的依赖</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -499,7 +626,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
             <button
               onClick={handleSave}
-              disabled={gpuLoading || filterLoading}
+              disabled={gpuLoading || filterLoading || pythonEnvLoading}
               className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />

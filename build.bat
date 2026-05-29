@@ -1,9 +1,13 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 echo ========================================
 echo     数据标注工具 - Windows 打包
 echo ========================================
 echo.
+
+:: 配置国内镜像源（避免 GitHub 连接超时）
+set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
 
 :: 检查 Node.js
 node -v >nul 2>&1
@@ -64,6 +68,42 @@ echo [成功] Python 服务打包完成: python_dist\app\app.exe
 :: 构建并打包 Electron 应用
 echo [步骤 5/5] 构建并打包 Windows 安装程序...
 call npm run build:win
+
+if errorlevel 1 (
+    echo [错误] Electron 打包失败
+    pause
+    exit /b 1
+)
+
+:: 验证安装包生成
+echo [验证] 检查安装包完整性...
+if not exist "release" (
+    echo [错误] release 目录不存在，打包可能失败
+    pause
+    exit /b 1
+)
+
+:: 查找生成的 exe 安装程序
+set "installer_found="
+for /r "release" %%f in (*.exe) do (
+    set "installer_found=1"
+    echo [验证] 找到安装程序: %%f
+    for %%a in ("%%f") do (
+        if "%%~za"=="0" (
+            echo [错误] 安装程序文件大小为 0，文件可能损坏
+            pause
+            exit /b 1
+        )
+        echo [验证] 文件大小: %%~za bytes
+    )
+)
+
+if not defined installer_found (
+    echo [错误] 未找到安装程序 exe 文件
+    dir /s /b "release\*.exe"
+    pause
+    exit /b 1
+)
 
 echo.
 echo ========================================

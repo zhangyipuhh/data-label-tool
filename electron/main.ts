@@ -483,11 +483,25 @@ async function startPythonService() {
     console.warn('读取 GPU 配置失败:', err)
   }
 
+  // 读取 Python 环境配置，设置外部 site-packages 路径
+  let pythonPathEnv = isDev ? getPythonServicePath() : pythonCwd
+  try {
+    const pythonEnvConfigPath = path.join(getConfigDir(), 'python_env_config.json')
+    if (fs.existsSync(pythonEnvConfigPath)) {
+      const pythonEnvConfig = JSON.parse(fs.readFileSync(pythonEnvConfigPath, 'utf-8'))
+      if (pythonEnvConfig.sitePackagesPath && fs.existsSync(pythonEnvConfig.sitePackagesPath)) {
+        pythonPathEnv = pythonEnvConfig.sitePackagesPath + (process.platform === 'win32' ? ';' : ':') + pythonPathEnv
+      }
+    }
+  } catch (err) {
+    console.warn('读取 Python 环境配置失败:', err)
+  }
+
   pythonProcess = spawn(pythonCmd, args, {
     cwd: pythonCwd,
     env: {
       ...process.env,
-      PYTHONPATH: isDev ? getPythonServicePath() : pythonCwd,
+      PYTHONPATH: pythonPathEnv,
       PORT: String(pythonServicePort),
       CONFIG_DIR: getConfigDir(),
       MODEL_DIR: getModelsDir(),
@@ -1555,6 +1569,39 @@ ipcMain.handle('save-filter-config', async (_, config: any): Promise<{ success: 
     return { success: true, message: '过滤规则配置已保存并重载' }
   } catch (error) {
     return { success: false, message: `保存过滤规则配置失败: ${error}` }
+  }
+})
+
+/**
+ * 读取 Python 环境配置
+ * @returns Python 环境配置对象
+ */
+ipcMain.handle('read-python-env-config', async (): Promise<{ success: boolean; config?: any; message?: string }> => {
+  try {
+    const configPath = path.join(getConfigDir(), 'python_env_config.json')
+    if (!fs.existsSync(configPath)) {
+      return { success: true, config: { pythonPath: '', sitePackagesPath: '' } }
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    return { success: true, config }
+  } catch (error) {
+    return { success: false, message: `读取 Python 环境配置失败: ${error}` }
+  }
+})
+
+/**
+ * 保存 Python 环境配置
+ * @param _ - 事件对象
+ * @param config - Python 环境配置对象
+ * @returns 保存结果
+ */
+ipcMain.handle('save-python-env-config', async (_, config: any): Promise<{ success: boolean; message?: string }> => {
+  try {
+    const configPath = path.join(getConfigDir(), 'python_env_config.json')
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+    return { success: true, message: 'Python 环境配置已保存，重启应用后生效' }
+  } catch (error) {
+    return { success: false, message: `保存 Python 环境配置失败: ${error}` }
   }
 })
 

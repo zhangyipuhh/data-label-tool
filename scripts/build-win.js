@@ -8,6 +8,10 @@ const { execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
+// 配置国内镜像源（避免 GitHub 连接超时）
+process.env.ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+process.env.ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/'
+
 console.log('🚀 开始 Windows 打包流程...\n')
 
 // 1. 检查 Node.js 版本
@@ -110,19 +114,57 @@ if (!fs.existsSync(iconPath)) {
   }
 }
 
-// 8. 执行 Electron 打包
+// 7. 执行 Electron 打包
 console.log('\n🔨 构建 Electron 应用...')
 try {
   execSync('npm run build:win', { stdio: 'inherit' })
   console.log('\n✅ 打包完成!')
 
-  // 显示输出文件
+  // 验证安装包
+  console.log('\n🔍 验证安装包完整性...')
   const releaseDir = path.join('release')
-  if (fs.existsSync(releaseDir)) {
-    const files = fs.readdirSync(releaseDir)
-    console.log('\n📁 输出文件:')
-    files.forEach(f => {
-      const stats = fs.statSync(path.join(releaseDir, f))
+  if (!fs.existsSync(releaseDir)) {
+    console.error('❌ release 目录不存在，打包可能失败')
+    process.exit(1)
+  }
+
+  const exeFiles = []
+  const searchExeFiles = (dir) => {
+    const files = fs.readdirSync(dir, { withFileTypes: true })
+    for (const file of files) {
+      const fullPath = path.join(dir, file.name)
+      if (file.isDirectory()) {
+        searchExeFiles(fullPath)
+      } else if (file.name.endsWith('.exe')) {
+        const stats = fs.statSync(fullPath)
+        if (stats.size === 0) {
+          console.error(`❌ 安装程序文件大小为 0，文件可能损坏: ${fullPath}`)
+          process.exit(1)
+        }
+        exeFiles.push({ path: fullPath, size: stats.size })
+      }
+    }
+  }
+  searchExeFiles(releaseDir)
+
+  if (exeFiles.length === 0) {
+    console.error('❌ 未找到安装程序 exe 文件')
+    process.exit(1)
+  }
+
+  console.log('✅ 找到以下安装程序:')
+  exeFiles.forEach(f => {
+    const sizeMB = (f.size / 1024 / 1024).toFixed(2)
+    console.log(`   ${f.path} (${sizeMB} MB)`)
+  })
+
+  // 显示 release 目录下所有输出文件
+  const allFiles = fs.readdirSync(releaseDir)
+  if (allFiles.length > exeFiles.length) {
+    console.log('\n📁 其他输出文件:')
+    allFiles.forEach(f => {
+      const fullPath = path.join(releaseDir, f)
+      const stats = fs.statSync(fullPath)
       const size = (stats.size / 1024 / 1024).toFixed(2)
       console.log(`   - ${f} (${size} MB)`)
     })

@@ -465,6 +465,29 @@ interface ElectronAPI {
     message?: string
   }>
 
+  /**
+   * 读取 Python 环境配置
+   * @returns Promise<{ success: boolean; config?: any; message?: string }>
+   */
+  readPythonEnvConfig: () => Promise<{
+    success: boolean
+    config?: {
+      pythonPath: string
+      sitePackagesPath: string
+    }
+    message?: string
+  }>
+
+  /**
+   * 保存 Python 环境配置
+   * @param config - Python 环境配置对象
+   * @returns Promise<{ success: boolean; message?: string }>
+   */
+  savePythonEnvConfig: (config: any) => Promise<{
+    success: boolean
+    message?: string
+  }>
+
   // ========== 事件监听 ==========
 
   /**

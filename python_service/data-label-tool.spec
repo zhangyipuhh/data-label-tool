@@ -10,31 +10,22 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 block_cipher = None
 
 # 隐藏导入（PyInstaller 可能检测不到的模块）
+# 注意：torch、transformers 等大依赖由客户端自行安装，不打包进可执行文件
 hiddenimports = [
-    'transformers',
-    'transformers.models.bert',
-    'torch',
-    'torch.nn',
     'flask',
     'flask_cors',
     'pypinyin',
     'jieba',
-    'safetensors',
-    'safetensors.torch',
-    'tokenizers',
-    'tokenizers.models',
-    'tokenizers.decoders',
-    'tokenizers.normalizers',
-    'tokenizers.pre_tokenizers',
-    'tokenizers.processors',
-    'tokenizers.trainers',
     'numpy',
     'numpy.core',
     'numpy.core._methods',
 ]
 
-# 排除训练/可视化专用库（app.py 和 config_manager.py 未使用，不影响推理功能）
+# 排除大体积依赖（由客户端自行安装）和训练/可视化专用库
 excludes = [
+    'torch', 'torchvision', 'torchaudio',
+    'transformers', 'tokenizers', 'safetensors',
+    'huggingface_hub', 'huggingface',
     'matplotlib', 'seaborn', 'tensorboard',
     'datasets', 'peft', 'evaluate', 'accelerate',
     'IPython', 'notebook', 'jupyter', 'tkinter',
@@ -70,7 +61,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=True,  # 保留控制台窗口以查看日志
     icon=None,
 )
@@ -81,7 +72,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='app',
 )

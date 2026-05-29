@@ -15,8 +15,30 @@ import itertools
 from typing import List, Dict, Any, Tuple, Generator, Optional
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
-import torch
-from transformers import BertTokenizer, BertForTokenClassification
+
+# PyInstaller 打包模式下，尝试从外部 site-packages 加载 torch 等大依赖
+# 手动注入 PYTHONPATH 到 sys.path，确保能找到客户端已安装的库
+if getattr(sys, 'frozen', False):
+    _site_packages_paths = []
+    _env_pythonpath = os.environ.get('PYTHONPATH', '')
+    if _env_pythonpath:
+        for _p in _env_pythonpath.split(';' if sys.platform == 'win32' else ':'):
+            _p = _p.strip()
+            if _p and os.path.isdir(_p) and _p not in sys.path:
+                sys.path.insert(0, _p)
+                _site_packages_paths.append(_p)
+
+# 尝试导入 torch 和 transformers（大依赖由客户端自行安装，不打包进可执行文件）
+try:
+    import torch
+    from transformers import BertTokenizer, BertForTokenClassification
+    _TORCH_AVAILABLE = True
+except ImportError as _e:
+    torch = None
+    BertTokenizer = None
+    BertForTokenClassification = None
+    _TORCH_AVAILABLE = False
+    _TORCH_IMPORT_ERROR = str(_e)
 
 # 导入过滤模块
 from text_filter import get_text_filter, FilterResultType
@@ -546,6 +568,14 @@ model = None
 def init_model():
     """初始化模型（启动时调用）"""
     global model
+    if not _TORCH_AVAILABLE:
+        logger.warning("=" * 60)
+        logger.warning("[警告] torch/transformers 未安装，推理功能不可用")
+        logger.warning("请执行以下命令安装依赖:")
+        logger.warning("  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128")
+        logger.warning("  pip install transformers tokenizers safetensors")
+        logger.warning("=" * 60)
+        return None
     if model is None:
         model = BERTModel()
     return model
@@ -577,6 +607,13 @@ def gpu_info():
     返回:
         JSON 格式的 GPU 状态信息
     """
+    if not _TORCH_AVAILABLE:
+        return jsonify({
+            "error": "torch 未安装",
+            "message": "请在客户端安装 torch 后重试",
+            "install_command": "pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128"
+        }), 503
+
     info = {
         "cuda_available": torch.cuda.is_available(),
         "pytorch_version": torch.__version__,
@@ -631,6 +668,14 @@ def predict():
 
         # 调用模型推理
         model = get_model()
+        if model is None:
+            return jsonify({
+                "success": False,
+                "error": "模型未加载",
+                "message": "torch/transformers 未安装，请安装后重试",
+                "install_command": "pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 && pip install transformers tokenizers safetensors"
+            }), 503
+
         results = model.predict(texts, k=k)
 
         logger.info(f"推理完成: {len(results)} 条结果")
@@ -672,6 +717,14 @@ def predict_stream():
         sys.stdout.flush()
 
         model = get_model()
+        if model is None:
+            return jsonify({
+                "success": False,
+                "error": "模型未加载",
+                "message": "torch/transformers 未安装，请安装后重试",
+                "install_command": "pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 && pip install transformers tokenizers safetensors"
+            }), 503
+
         logger.info(f"[DEBUG] 获取模型实例成功")
         sys.stdout.flush()
 

@@ -327,5 +327,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @param config - 过滤规则配置对象
    * @returns Promise<{ success: boolean; message?: string }>
    */
-  saveFilterConfig: (config: any) => ipcRenderer.invoke('save-filter-config', config)
+  saveFilterConfig: (config: any) => ipcRenderer.invoke('save-filter-config', config),
+
+  /**
+   * 读取 Python 环境配置
+   * @returns Promise<{ success: boolean; config?: any; message?: string }>
+   */
+  readPythonEnvConfig: () => ipcRenderer.invoke('read-python-env-config'),
+
+  /**
+   * 保存 Python 环境配置
+   * @param config - Python 环境配置对象
+   * @returns Promise<{ success: boolean; message?: string }>
+   */
+  savePythonEnvConfig: (config: any) => ipcRenderer.invoke('save-python-env-config', config)
 })
