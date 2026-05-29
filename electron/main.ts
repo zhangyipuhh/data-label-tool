@@ -529,7 +529,8 @@ function createWindow() {
       webSecurity: true,
       allowRunningInsecureContent: false,
       sandbox: true,
-      experimentalFeatures: false
+      experimentalFeatures: false,
+      devTools: true
     },
     show: false
   })
@@ -653,6 +654,18 @@ function createWindow() {
           label: '全局设置',
           click: () => {
             mainWindow?.webContents.send('open-settings')
+          }
+        }
+      ]
+    },
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '开发者工具',
+          accelerator: process.platform === 'darwin' ? 'Cmd+Option+I' : 'F12',
+          click: () => {
+            mainWindow?.webContents.toggleDevTools()
           }
         }
       ]

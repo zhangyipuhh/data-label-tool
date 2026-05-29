@@ -182,10 +182,12 @@ interface PredictionRecordMap {
         setDirectoryTree(treeResult.tree || null)
         setMessage(`✅ 已打开文件夹: ${result.folderPath}`)
       } else {
+        console.error('读取目录失败:', treeResult.message)
         setMessage(`❌ 读取目录失败: ${treeResult.message}`)
       }
     } catch (error) {
       const errorMessage = formatError(error)
+      console.error('打开文件夹错误:', errorMessage)
       setMessage(`❌ 错误: ${errorMessage}`)
     }
   }, [])
@@ -254,6 +256,7 @@ interface PredictionRecordMap {
       setMessage(`✅ 成功加载: ${readResult.fileName} (${readResult.rows.length} 行 × ${readResult.headers.length} 列)`)
     } catch (error) {
       const errorMessage = formatError(error)
+      console.error('读取 Excel 错误:', errorMessage)
       setMessage(`❌ 错误: ${errorMessage}`)
     }
   }, [tabs])
@@ -307,6 +310,7 @@ interface PredictionRecordMap {
       }))
     } catch (error) {
       const errorMessage = formatError(error)
+      console.error('切换Sheet错误:', errorMessage)
       setMessage(`❌ 切换Sheet错误: ${errorMessage}`)
     }
   }, [tabs])
@@ -382,10 +386,12 @@ interface PredictionRecordMap {
         ))
         closeTab(closeConfirmTabId)
       } else {
+        console.error('保存失败:', result.message)
         setMessage(`❌ 保存失败: ${result.message}`)
       }
     } catch (error) {
       const errorMessage = formatError(error)
+      console.error('保存错误:', errorMessage)
       setMessage(`❌ 保存错误: ${errorMessage}`)
     }
   }, [closeConfirmTabId, tabs])
@@ -481,10 +487,12 @@ interface PredictionRecordMap {
         }))
         setMessage(`✅ 已保存: ${result.filePath}`)
       } else {
+        console.error('另存为失败:', result.message)
         setMessage(`❌ 保存失败: ${result.message}`)
       }
     } catch (error) {
       const errorMessage = formatError(error)
+      console.error('另存为错误:', errorMessage)
       setMessage(`❌ 保存错误: ${errorMessage}`)
     }
   }, [activeTabId, tabs])
@@ -520,10 +528,12 @@ interface PredictionRecordMap {
         }))
         setMessage('✅ 已保存到原文件')
       } else {
+        console.error('保存到原文件失败:', result.message)
         setMessage(`❌ 保存失败: ${result.message}`)
       }
     } catch (error) {
       const errorMessage = formatError(error)
+      console.error('保存到原文件错误:', errorMessage)
       setMessage(`❌ 保存错误: ${errorMessage}`)
     }
   }, [activeTabId, tabs])
@@ -600,6 +610,7 @@ interface PredictionRecordMap {
       setIsPredicting(false)
       setPredictingTabId(null)
       const errorMessage = formatError(error)
+      console.error('预测启动失败:', errorMessage)
       setMessage(`❌ 预测启动失败: ${errorMessage}`)
     }
   }, [activeTab, activeTabId])
@@ -725,6 +736,7 @@ interface PredictionRecordMap {
   const handlePredictError = useCallback((error: { message: string }) => {
     setIsPredicting(false)
     setPredictingTabId(null)
+    console.error('预测错误:', error.message)
     setMessage(`❌ 预测错误: ${error.message}`)
   }, [])
 
@@ -955,6 +967,7 @@ interface PredictionRecordMap {
       setMessage(isCorrect ? '✅ 已确认预测正确' : '✅ 已提交反馈')
     } catch (error) {
       const errorMessage = formatError(error)
+      console.error('保存反馈失败:', errorMessage)
       setMessage(`❌ 保存反馈失败: ${errorMessage}`)
     }
     
