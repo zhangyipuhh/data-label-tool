@@ -12,6 +12,9 @@ import io
 import json
 import logging
 import itertools
+import threading
+import queue
+import time
 from typing import List, Dict, Any, Tuple, Generator, Optional
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
@@ -32,16 +35,25 @@ if getattr(sys, 'frozen', False):
                 _site_packages_paths.append(_p)
 
 # 尝试导入 torch 和 transformers（大依赖由客户端自行安装，不打包进可执行文件）
+# 调试：打印 sys.path 和 PYTHONPATH，帮助排查导入问题
+if getattr(sys, 'frozen', False):
+    print(f"[DEBUG] sys.frozen = True")
+    print(f"[DEBUG] PYTHONPATH = {os.environ.get('PYTHONPATH', 'NOT SET')}")
+    print(f"[DEBUG] sys.path = {sys.path}")
+    print(f"[DEBUG] site-packages injected = {_site_packages_paths}")
+
 try:
     import torch
     from transformers import BertTokenizer, BertForTokenClassification
     _TORCH_AVAILABLE = True
+    print(f"[DEBUG] torch imported successfully, version = {torch.__version__}")
 except ImportError as _e:
     torch = None
     BertTokenizer = None
     BertForTokenClassification = None
     _TORCH_AVAILABLE = False
     _TORCH_IMPORT_ERROR = str(_e)
+    print(f"[DEBUG] torch import failed: {_TORCH_IMPORT_ERROR}")
 
 # 导入过滤模块
 from text_filter import get_text_filter, FilterResultType
@@ -677,6 +689,55 @@ def predict():
         }), 500
 
 
+def sse_with_heartbeat(generator: Generator[str, None, None], interval: float = 30.0) -> Generator[str, None, None]:
+    """
+    为 SSE 生成器添加心跳注释，防止长连接被中间代理或客户端超时断开
+
+    参数:
+        generator: 原始 SSE 数据生成器
+        interval: 心跳间隔（秒），默认 30 秒
+
+    Yields:
+        SSE 格式的字符串（含心跳注释）
+    """
+    q: queue.Queue = queue.Queue()
+    stop_event = threading.Event()
+    last_yield_time = time.time()
+
+    def producer():
+        """生产者线程：从原始生成器读取数据放入队列"""
+        try:
+            for item in generator:
+                q.put(item)
+        finally:
+            stop_event.set()
+
+    def heartbeat():
+        """心跳线程：定期发送 SSE 注释行（:heartbeat）保活"""
+        while not stop_event.is_set():
+            stop_event.wait(interval)
+            if not stop_event.is_set():
+                q.put(":heartbeat\n\n")
+
+    producer_thread = threading.Thread(target=producer, daemon=True)
+    heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+    producer_thread.start()
+    heartbeat_thread.start()
+
+    while True:
+        try:
+            item = q.get(timeout=interval + 5)
+            if item is None:
+                break
+            yield item
+            last_yield_time = time.time()
+        except queue.Empty:
+            if stop_event.is_set() and q.empty():
+                break
+            if time.time() - last_yield_time > interval * 2:
+                break
+
+
 @app.route('/predict_stream', methods=['POST'])
 def predict_stream():
     """
@@ -717,7 +778,7 @@ def predict_stream():
                 yield chunk
 
         return Response(
-            stream_with_context(generate()),
+            stream_with_context(sse_with_heartbeat(generate(), interval=30.0)),
             mimetype='text/event-stream',
             headers={
                 'Cache-Control': 'no-cache',

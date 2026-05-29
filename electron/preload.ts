@@ -340,5 +340,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @param config - Python 环境配置对象
    * @returns Promise<{ success: boolean; message?: string }>
    */
-  savePythonEnvConfig: (config: any) => ipcRenderer.invoke('save-python-env-config', config)
+  savePythonEnvConfig: (config: any) => ipcRenderer.invoke('save-python-env-config', config),
+
+  /**
+   * 读取日志配置
+   * @returns Promise<{ success: boolean; config?: any; message?: string }>
+   */
+  readLoggingConfig: () => ipcRenderer.invoke('read-logging-config'),
+
+  /**
+   * 保存日志配置
+   * @param config - 日志配置对象
+   * @returns Promise<{ success: boolean; message?: string }>
+   */
+  saveLoggingConfig: (config: { level: string }) => ipcRenderer.invoke('save-logging-config', config)
 })

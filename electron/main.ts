@@ -5,6 +5,9 @@ import Database from 'better-sqlite3'
 import { spawn, ChildProcess } from 'child_process'
 import fs from 'fs'
 import net from 'net'
+
+// 禁用 undici body timeout，防止 SSE 流式预测因等待时间过长而中断
+process.env.UNDICI_BODY_TIMEOUT = '0'
 import {
   createEncryptedDb,
   openEncryptedDb,
