@@ -46,3 +46,4 @@ models/abbr_mapper_nar/model.safetensors
 models/abbr_mapper_nar/special_tokens_map.json
 models/abbr_mapper_nar/tokenizer_config.json
 models/abbr_mapper_nar/vocab.txt
+models/abbr_mapper_nar.zip
