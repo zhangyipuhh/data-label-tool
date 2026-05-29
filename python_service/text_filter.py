@@ -11,6 +11,9 @@ from dataclasses import dataclass
 
 from config_manager import get_config_manager, ConfigManager
 from text_preprocessor import preprocess_text
+from logger_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class FilterResultType(Enum):

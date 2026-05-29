@@ -15,6 +15,9 @@ import itertools
 from typing import List, Dict, Any, Tuple, Generator, Optional
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
+from waitress import serve
+
+from logger_config import setup_logging, get_logger
 
 # PyInstaller 打包模式下，尝试从外部 site-packages 加载 torch 等大依赖
 # 手动注入 PYTHONPATH 到 sys.path，确保能找到客户端已安装的库
@@ -48,15 +51,9 @@ from config_manager import get_config_manager
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+# 初始化日志系统（从配置文件读取日志级别）
+setup_logging()
+logger = get_logger(__name__)
 
 app = Flask(__name__)
 CORS(app)
@@ -133,15 +130,7 @@ class NARInference:
         self.tokenizer = None
         self.model = None
 
-        self._setup_logging()
-
-    def _setup_logging(self):
-        """配置日志"""
-        logging.basicConfig(
-            level=logging.INFO if self.verbose else logging.WARNING,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        )
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
     def _load_gpu_config(self) -> dict:
         """加载 GPU 配置文件
@@ -388,37 +377,37 @@ class BERTModel:
     def __init__(self):
         """初始化时立即加载模型和过滤器"""
         logger.info("=" * 60)
-        logger.info("[DEBUG] BERTModel 初始化开始")
+        logger.info("BERTModel 初始化开始")
         logger.info("=" * 60)
 
         # 读取环境变量中的设备配置
         env_device = os.environ.get("NAR_DEVICE", None)
         if env_device:
-            logger.info(f"[DEBUG] 从环境变量 NAR_DEVICE 读取设备: {env_device}")
+            logger.debug(f"从环境变量 NAR_DEVICE 读取设备: {env_device}")
 
-        logger.info("[DEBUG] 正在加载 NAR 模型...")
+        logger.info("正在加载 NAR 模型...")
         self.inference = NARInference(
             model_path=os.path.join(get_models_dir(), "abbr_mapper_nar"),
             device=env_device,
             verbose=True
         )
         self.inference.load_model()
-        logger.info("[DEBUG] NAR 模型加载完成")
+        logger.info("NAR 模型加载完成")
 
         # 初始化文本过滤器
-        logger.info("[DEBUG] 正在初始化文本过滤器...")
+        logger.info("正在初始化文本过滤器...")
         self.text_filter = get_text_filter()
 
         # 记录过滤器配置信息
         from config_manager import get_config_manager
         config = get_config_manager()
-        logger.info(f"[DEBUG] 配置文件路径: {config.config_path}")
-        logger.info(f"[DEBUG] 配置文件是否存在: {os.path.exists(config.config_path)}")
-        logger.info(f"[DEBUG] 配置文件加载状态: {config.is_loaded()}")
-        logger.info(f"[DEBUG] 精确匹配规则数: {len(config.get_all_exact_rules())}")
-        logger.info(f"[DEBUG] 前缀匹配规则数: {len(config.get_all_prefixes())}")
-        logger.info(f"[DEBUG] 前缀规则列表: {config.get_all_prefixes()}")
-        logger.info("[DEBUG] 文本过滤器初始化完成")
+        logger.debug(f"配置文件路径: {config.config_path}")
+        logger.debug(f"配置文件是否存在: {os.path.exists(config.config_path)}")
+        logger.debug(f"配置文件加载状态: {config.is_loaded()}")
+        logger.debug(f"精确匹配规则数: {len(config.get_all_exact_rules())}")
+        logger.debug(f"前缀匹配规则数: {len(config.get_all_prefixes())}")
+        logger.debug(f"前缀规则列表: {config.get_all_prefixes()}")
+        logger.info("文本过滤器初始化完成")
         logger.info("=" * 60)
 
     def predict_single(self, text: str, k: int = 5) -> Dict[str, Any]:
@@ -437,21 +426,18 @@ class BERTModel:
         返回:
             {"content": "全称", "confidence": 0.85, "alternatives": [...]}
         """
-        logger.info(f"[DEBUG] predict_single 被调用，输入: '{text}'")
-        sys.stdout.flush()
+        logger.debug(f"predict_single 被调用，输入: '{text}'")
 
         # 1. 先进行过滤检查
         filter_result = self.text_filter.filter(text)
-        logger.info(f"[DEBUG] 过滤结果: type={filter_result.result_type.value}, "
+        logger.debug(f"过滤结果: type={filter_result.result_type.value}, "
                    f"processed='{filter_result.processed_text}', "
                    f"output='{filter_result.output_text}', "
                    f"matched_rule='{filter_result.matched_rule}'")
-        sys.stdout.flush()
 
         # 2. 前缀匹配：直接返回原值
         if filter_result.result_type == FilterResultType.PREFIX_MATCH:
-            logger.info(f"[DEBUG] 前缀匹配成功: '{text}' -> 返回原值")
-            sys.stdout.flush()
+            logger.debug(f"前缀匹配成功: '{text}' -> 返回原值")
             return {
                 "content": text,
                 "confidence": 1.0,
@@ -460,8 +446,7 @@ class BERTModel:
 
         # 3. 精确匹配：返回替换值
         if filter_result.result_type == FilterResultType.EXACT_MATCH:
-            logger.info(f"[DEBUG] 精确匹配成功: '{text}' -> '{filter_result.output_text}'")
-            sys.stdout.flush()
+            logger.debug(f"精确匹配成功: '{text}' -> '{filter_result.output_text}'")
             return {
                 "content": filter_result.output_text,
                 "confidence": 1.0,
@@ -469,8 +454,7 @@ class BERTModel:
             }
 
         # 4. 需要模型识别
-        logger.info(f"[DEBUG] 未匹配规则，使用模型识别: '{text}'")
-        sys.stdout.flush()
+        logger.debug(f"未匹配规则，使用模型识别: '{text}'")
         candidates = self.inference.expand_abbr_topk(text, k=k)
         return self._format_result(text, candidates)
 
@@ -713,8 +697,8 @@ def predict_stream():
         if not isinstance(texts, list):
             return jsonify({"error": "data 必须是数组"}), 400
 
-        logger.info(f"[DEBUG] 收到流式推理请求: {len(texts)} 条数据, 内容: {texts}")
-        sys.stdout.flush()
+        logger.info(f"收到流式推理请求: {len(texts)} 条数据")
+        logger.debug(f"流式推理数据内容: {texts}")
 
         model = get_model()
         if model is None:
@@ -725,12 +709,10 @@ def predict_stream():
                 "install_command": "pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 && pip install transformers tokenizers safetensors"
             }), 503
 
-        logger.info(f"[DEBUG] 获取模型实例成功")
-        sys.stdout.flush()
+        logger.debug("获取模型实例成功")
 
         def generate():
-            logger.info(f"[DEBUG] 开始生成流式响应")
-            sys.stdout.flush()
+            logger.debug("开始生成流式响应")
             for chunk in model.predict_stream(texts, k=k):
                 yield chunk
 
@@ -771,6 +753,30 @@ def reload_config():
     except Exception as e:
         logger.error(f"重载配置失败: {str(e)}")
         return jsonify({"success": False, "message": f"重载配置失败: {str(e)}"}), 500
+
+
+@app.route('/api/reload-logging-config', methods=['POST'])
+def reload_logging_config_route():
+    """重载日志配置接口
+
+    运行时热重载日志配置，读取最新的 logging_config.json 并更新日志级别。
+    前端修改日志级别后调用此接口使配置立即生效，无需重启服务。
+
+    返回:
+        JSON 格式的重载结果，包含更新后的日志级别
+    """
+    try:
+        from logger_config import reload_logging_config
+        config = reload_logging_config()
+        logger.info(f"日志配置已重载，当前级别: {config.get('level', 'INFO')}")
+        return jsonify({
+            "success": True,
+            "message": "日志配置已重载",
+            "level": config.get("level", "INFO")
+        })
+    except Exception as e:
+        logger.error(f"重载日志配置失败: {str(e)}")
+        return jsonify({"success": False, "message": f"重载日志配置失败: {str(e)}"}), 500
 
 
 @app.route('/batch_predict', methods=['POST'])
@@ -815,4 +821,7 @@ if __name__ == '__main__':
 
     logger.info("模型加载完成，启动 HTTP 服务...")
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+    # 使用 waitress 生产级 WSGI 服务器替代 Flask 开发服务器
+    # 避免打包后出现 "This is a development server" 警告
+    logger.info(f"服务监听地址: http://0.0.0.0:{port}")
+    serve(app, host='0.0.0.0', port=port, threads=8)

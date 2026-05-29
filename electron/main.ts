@@ -1586,8 +1586,69 @@ ipcMain.handle('save-filter-config', async (_, config: any): Promise<{ success: 
 })
 
 /**
+ * 读取日志配置
+ * @returns 日志配置对象
+ */
+ipcMain.handle('read-logging-config', async (): Promise<{ success: boolean; config?: any; message?: string }> => {
+  try {
+    const configPath = path.join(getConfigDir(), 'logging_config.json')
+    if (!fs.existsSync(configPath)) {
+      return { success: true, config: { level: 'INFO', log_dir: 'log', log_file: 'python_service.log', max_bytes: 1048576, backup_count: 5 } }
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    return { success: true, config }
+  } catch (error) {
+    return { success: false, message: `读取日志配置失败: ${error}` }
+  }
+})
+
+/**
+ * 保存日志配置
+ * @param _ - 事件对象
+ * @param config - 日志配置对象
+ * @returns 保存结果
+ */
+ipcMain.handle('save-logging-config', async (_, config: any): Promise<{ success: boolean; message?: string }> => {
+  try {
+    const configPath = path.join(getConfigDir(), 'logging_config.json')
+    const existingConfig = fs.existsSync(configPath)
+      ? JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+      : {}
+    const newConfig = {
+      ...existingConfig,
+      level: config.level ?? existingConfig.level ?? 'INFO',
+      log_dir: config.log_dir ?? existingConfig.log_dir ?? 'log',
+      log_file: config.log_file ?? existingConfig.log_file ?? 'python_service.log',
+      max_bytes: config.max_bytes ?? existingConfig.max_bytes ?? 1048576,
+      backup_count: config.backup_count ?? existingConfig.backup_count ?? 5,
+    }
+    fs.writeFileSync(configPath, JSON.stringify(newConfig, null, 2), 'utf-8')
+
+    // 通知 Python 服务重载日志配置
+    try {
+      const port = process.env.PORT || pythonServicePort || 5000
+      const http = await import('http')
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(`http://127.0.0.1:${port}/api/reload-logging-config`, { method: 'POST' }, (res) => {
+          res.on('data', () => {})
+          res.on('end', resolve)
+        })
+        req.on('error', reject)
+        req.setTimeout(3000, () => { req.destroy(); reject(new Error('超时')) })
+        req.end()
+      })
+    } catch (reloadErr) {
+      console.warn('通知 Python 服务重载日志配置失败（服务可能未启动）:', reloadErr)
+    }
+
+    return { success: true, message: '日志配置已保存并生效' }
+  } catch (error) {
+    return { success: false, message: `保存日志配置失败: ${error}` }
+  }
+})
+
+/**
  * 读取 Python 环境配置
- * @returns Python 环境配置对象
  */
 ipcMain.handle('read-python-env-config', async (): Promise<{ success: boolean; config?: any; message?: string }> => {
   try {

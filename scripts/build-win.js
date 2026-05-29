@@ -175,4 +175,4 @@ try {
 }
 
 console.log('\n🎉 完成! 安装程序位于 release/ 目录')
-console.log('\n⚠️  注意: 用户安装后需手动将 models/abbr_mapper_nar/ 目录复制到安装目录的 resources/models/ 下')
+console.log('\n✅ 提示: 安装后 resources/models/ 目录已自动创建，可将模型文件直接放入该目录')

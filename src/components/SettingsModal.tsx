@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { X, Cpu, Filter, Plus, Trash2, Save, AlertTriangle, Terminal } from 'lucide-react'
+import { X, Cpu, Filter, Plus, Trash2, Save, AlertTriangle, Terminal, ScrollText } from 'lucide-react'
 
 /**
  * 设置面板导航项类型
  */
-type SettingsTab = 'gpu' | 'filter' | 'python'
+type SettingsTab = 'gpu' | 'filter' | 'python' | 'logging'
 
 /**
  * 精确匹配规则项接口
@@ -79,6 +79,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [pythonEnvConfig, setPythonEnvConfig] = useState<PythonEnvConfig>({ pythonPath: '', sitePackagesPath: '' })
   const [pythonEnvLoading, setPythonEnvLoading] = useState(false)
 
+  // 日志配置状态
+  const [logLevel, setLogLevel] = useState<string>('INFO')
+  const [logLoading, setLogLoading] = useState(false)
+
   // 重启提示状态
   const [showRestartHint, setShowRestartHint] = useState(false)
 
@@ -105,6 +109,45 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     await loadGpuConfig()
     await loadFilterConfig()
     await loadPythonEnvConfig()
+    await loadLoggingConfig()
+  }
+
+  /**
+   * 加载日志配置
+   */
+  const loadLoggingConfig = async () => {
+    if (!window.electronAPI) return
+    try {
+      setLogLoading(true)
+      const result = await window.electronAPI.readLoggingConfig()
+      if (result.success && result.config) {
+        setLogLevel(result.config.level || 'INFO')
+      }
+    } catch (error) {
+      console.error('加载日志配置失败:', error)
+    } finally {
+      setLogLoading(false)
+    }
+  }
+
+  /**
+   * 保存日志配置
+   */
+  const handleSaveLogging = async () => {
+    if (!window.electronAPI) return
+    try {
+      setLogLoading(true)
+      const result = await window.electronAPI.saveLoggingConfig({ level: logLevel })
+      if (result.success) {
+        onMessage('✅ 日志配置已保存并生效')
+      } else {
+        onMessage(`❌ 保存日志配置失败: ${result.message}`)
+      }
+    } catch (error) {
+      onMessage(`❌ 保存日志配置失败: ${error}`)
+    } finally {
+      setLogLoading(false)
+    }
   }
 
   /**
@@ -311,6 +354,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       handleSaveGpu()
     } else if (activeTab === 'filter') {
       handleSaveFilter()
+    } else if (activeTab === 'logging') {
+      handleSaveLogging()
     } else {
       handleSavePythonEnv()
     }
@@ -394,6 +439,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 <Terminal className="w-4 h-4" />
                 Python 环境
+              </button>
+              <button
+                onClick={() => setActiveTab('logging')}
+                className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+                  activeTab === 'logging'
+                    ? 'bg-blue-50 text-blue-700 font-medium'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
+                }`}
+              >
+                <ScrollText className="w-4 h-4" />
+                日志设置
               </button>
             </nav>
           </div>
@@ -611,6 +667,43 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
               </div>
+            ) : activeTab === 'logging' ? (
+              /* 日志设置内容 */
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    日志级别
+                  </label>
+                  <select
+                    value={logLevel}
+                    onChange={(e) => setLogLevel(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                  >
+                    <option value="INFO">INFO - 关键节点信息</option>
+                    <option value="DEBUG">DEBUG - 详细调试信息</option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-400">
+                    INFO 级别仅输出服务启动、模型加载、请求处理等关键节点日志；DEBUG 级别输出详细的处理流程和内部状态
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    日志文件路径
+                  </label>
+                  <div className="px-3 py-2 text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg">
+                    {'{应用程序目录}/log/python_service.log'}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-400">
+                    日志文件按大小自动轮转，最多保留 5 个历史文件
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <Save className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-green-600">日志配置保存后立即生效，无需重启应用</p>
+                </div>
+              </div>
             ) : null}
           </div>
         </div>
@@ -626,7 +719,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
             <button
               onClick={handleSave}
-              disabled={gpuLoading || filterLoading || pythonEnvLoading}
+              disabled={gpuLoading || filterLoading || pythonEnvLoading || logLoading}
               className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />

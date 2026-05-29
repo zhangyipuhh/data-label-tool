@@ -8,10 +8,11 @@
 import json
 import os
 import sys
-import logging
 from typing import Dict, List, Any, Optional
 
-logger = logging.getLogger(__name__)
+from logger_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_base_dir():

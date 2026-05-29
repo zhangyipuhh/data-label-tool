@@ -488,6 +488,32 @@ interface ElectronAPI {
     message?: string
   }>
 
+  /**
+   * 读取日志配置
+   * @returns Promise<{ success: boolean; config?: { level: string; log_dir: string; log_file: string }; message?: string }>
+   */
+  readLoggingConfig: () => Promise<{
+    success: boolean
+    config?: {
+      level: string
+      log_dir: string
+      log_file: string
+      max_bytes: number
+      backup_count: number
+    }
+    message?: string
+  }>
+
+  /**
+   * 保存日志配置
+   * @param config - 日志配置对象
+   * @returns Promise<{ success: boolean; message?: string }>
+   */
+  saveLoggingConfig: (config: { level: string }) => Promise<{
+    success: boolean
+    message?: string
+  }>
+
   // ========== 事件监听 ==========
 
   /**

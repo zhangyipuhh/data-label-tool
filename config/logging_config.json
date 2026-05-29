@@ -1,0 +1,11 @@
+{
+  "description": "Python 服务日志配置",
+  "version": "1.0.0",
+  "level": "INFO",
+  "log_dir": "log",
+  "log_file": "python_service.log",
+  "max_bytes": 1048576,
+  "backup_count": 5,
+  "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+  "date_format": "%Y-%m-%d %H:%M:%S"
+}

@@ -14,6 +14,7 @@ block_cipher = None
 hiddenimports = [
     'flask',
     'flask_cors',
+    'waitress',
     'pypinyin',
     'jieba',
     'numpy',

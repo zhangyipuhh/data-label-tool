@@ -11,6 +11,7 @@
 
 flask>=2.3.0
 flask-cors>=4.0.0
+waitress>=2.1.0
 numpy>=1.24.0
 
 # PyTorch (CUDA 12.8 版本)
