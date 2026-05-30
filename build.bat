@@ -1,4 +1,4 @@
-﻿@echo off
+﻿﻿@echo off
 chcp 65001 >nul
 echo ========================================
 echo     数据标注工具 - Windows 打包

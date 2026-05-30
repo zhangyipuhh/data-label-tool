@@ -8,6 +8,10 @@
 import re
 from typing import Optional
 
+from logger_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class TextPreprocessor:
     """
@@ -40,17 +44,13 @@ class TextPreprocessor:
             'SHAPEAREA'
         """
         if not text or not isinstance(text, str):
+            logger.debug(f"预处理输入无效，返回空字符串: {text}")
             return ""
 
-        # 去除前后空白
-        result = text.strip()
+        original = text
+        result = text.strip().upper().replace("_", "")
 
-        # 转换为大写
-        result = result.upper()
-
-        # 去除下划线
-        result = result.replace("_", "")
-
+        logger.debug(f"文本预处理: '{original}' -> '{result}'")
         return result
 
     @staticmethod

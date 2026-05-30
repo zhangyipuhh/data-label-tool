@@ -20,7 +20,7 @@ from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from waitress import serve
 
-from logger_config import setup_logging, get_logger
+from logger_config import setup_logging, get_logger, pre_log
 
 # PyInstaller 打包模式下，尝试从外部 site-packages 加载 torch 等大依赖
 # 手动注入 PYTHONPATH 到 sys.path，确保能找到客户端已安装的库
@@ -35,25 +35,25 @@ if getattr(sys, 'frozen', False):
                 _site_packages_paths.append(_p)
 
 # 尝试导入 torch 和 transformers（大依赖由客户端自行安装，不打包进可执行文件）
-# 调试：打印 sys.path 和 PYTHONPATH，帮助排查导入问题
+# 调试：记录 sys.path 和 PYTHONPATH，帮助排查导入问题
 if getattr(sys, 'frozen', False):
-    print(f"[DEBUG] sys.frozen = True")
-    print(f"[DEBUG] PYTHONPATH = {os.environ.get('PYTHONPATH', 'NOT SET')}")
-    print(f"[DEBUG] sys.path = {sys.path}")
-    print(f"[DEBUG] site-packages injected = {_site_packages_paths}")
+    pre_log("DEBUG", f"sys.frozen = True")
+    pre_log("DEBUG", f"PYTHONPATH = {os.environ.get('PYTHONPATH', 'NOT SET')}")
+    pre_log("DEBUG", f"sys.path = {sys.path}")
+    pre_log("DEBUG", f"site-packages injected = {_site_packages_paths}")
 
 try:
     import torch
     from transformers import BertTokenizer, BertForTokenClassification
     _TORCH_AVAILABLE = True
-    print(f"[DEBUG] torch imported successfully, version = {torch.__version__}")
+    pre_log("INFO", f"torch 导入成功，版本: {torch.__version__}")
 except ImportError as _e:
     torch = None
     BertTokenizer = None
     BertForTokenClassification = None
     _TORCH_AVAILABLE = False
     _TORCH_IMPORT_ERROR = str(_e)
-    print(f"[DEBUG] torch import failed: {_TORCH_IMPORT_ERROR}")
+    pre_log("WARNING", f"torch 导入失败: {_TORCH_IMPORT_ERROR}")
 
 # 导入过滤模块
 from text_filter import get_text_filter, FilterResultType

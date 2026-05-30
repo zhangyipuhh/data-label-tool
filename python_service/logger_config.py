@@ -13,10 +13,44 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
-from typing import Optional
+from typing import Optional, List, Tuple
 
 _logger_initialized = False
 _logging_config_cache = {}
+
+# 预初始化日志缓冲区，用于在 setup_logging() 之前缓存日志消息
+# 格式: [(level, message), ...]
+_pre_init_logs: List[Tuple[str, str]] = []
+
+
+def pre_log(level: str, message: str):
+    """预初始化日志记录
+
+    在 setup_logging() 之前使用，将日志消息缓存到缓冲区。
+    setup_logging() 完成后会自动刷出到实际的日志系统。
+
+    参数:
+        level: 日志级别字符串（DEBUG / INFO / WARNING / ERROR）
+        message: 日志消息内容
+    """
+    _pre_init_logs.append((level.upper(), message))
+
+
+def _flush_pre_init_logs():
+    """刷出预初始化日志缓冲区
+
+    将 setup_logging() 之前缓存的所有日志消息通过 logger 输出。
+    调用后清空缓冲区。
+    """
+    if not _pre_init_logs:
+        return
+
+    logger = logging.getLogger("pre_init")
+    for level, message in _pre_init_logs:
+        log_func = getattr(logger, level.lower(), logger.info)
+        log_func(message)
+
+    _pre_init_logs.clear()
 
 
 def get_base_dir():
@@ -84,9 +118,9 @@ def _load_logging_config():
             _logging_config_cache = config
             return config
         except (json.JSONDecodeError, IOError) as e:
-            print(f"日志配置文件读取失败: {e}，使用默认配置")
+            pre_log("WARNING", f"日志配置文件读取失败: {e}，使用默认配置")
     else:
-        print(f"日志配置文件不存在: {config_path}，使用默认配置")
+        pre_log("INFO", f"日志配置文件不存在: {config_path}，使用默认配置")
 
     default_config = _get_default_config()
     _logging_config_cache = default_config
@@ -141,7 +175,8 @@ def setup_logging():
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
-    console_handler.stream.reconfigure(encoding='utf-8')
+    if hasattr(console_handler.stream, 'reconfigure'):
+        console_handler.stream.reconfigure(encoding='utf-8')
     root_logger.addHandler(console_handler)
 
     log_dir = os.path.join(get_base_dir(), config.get("log_dir", "log"))
@@ -162,9 +197,12 @@ def setup_logging():
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
     except (OSError, IOError) as e:
-        print(f"创建日志文件失败: {e}，日志将仅输出到终端")
+        pre_log("WARNING", f"创建日志文件失败: {e}，日志将仅输出到终端")
 
     _logger_initialized = True
+
+    # 刷出预初始化日志缓冲区，确保 setup_logging() 之前的日志也能写入文件
+    _flush_pre_init_logs()
 
 
 def get_logger(name: str) -> logging.Logger:
