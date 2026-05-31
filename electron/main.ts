@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import path from 'path'
 import * as XLSX from 'xlsx'
 import Database from 'better-sqlite3'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, ChildProcess, execSync } from 'child_process'
 import fs from 'fs'
 import net from 'net'
 
@@ -137,6 +137,15 @@ function getModelsDir(): string {
 }
 
 /**
+ * 获取 Python 服务日志目录路径
+ * 使用 userData 目录确保打包后仍有写入权限
+ * @returns Python 服务日志目录的绝对路径
+ */
+function getPythonLogDir(): string {
+  return path.join(app.getPath('userData'), 'logs')
+}
+
+/**
  * 初始化反馈数据库（加密）
  * 使用 SQLCipher 加密保护数据安全
  * @returns void
@@ -238,6 +247,19 @@ function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true })
     console.log('数据目录已创建:', DATA_DIR)
+  }
+}
+
+/**
+ * 确保 Python 服务日志目录存在
+ * 使用 userData 目录避免系统目录权限问题
+ * @throws 创建目录失败时抛出错误
+ */
+function ensureLogDir(): void {
+  const logDir = getPythonLogDir()
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true })
+    console.log('Python 日志目录已创建:', logDir)
   }
 }
 
@@ -441,13 +463,60 @@ function findAvailablePort(startPort: number, endPort: number): Promise<number> 
   })
 }
 
+/**
+ * 读取 Python 环境配置
+ * @returns Python 环境配置对象，包含 pythonPath 和 sitePackagesPath
+ */
+function readPythonEnvConfig(): { pythonPath: string; sitePackagesPath: string } {
+  try {
+    const configPath = path.join(getConfigDir(), 'python_env_config.json')
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+      return {
+        pythonPath: config.pythonPath || '',
+        sitePackagesPath: config.sitePackagesPath || ''
+      }
+    }
+  } catch (err) {
+    console.warn('读取 Python 环境配置失败:', err)
+  }
+  return { pythonPath: '', sitePackagesPath: '' }
+}
+
+/**
+ * 验证外部 Python 解释器是否可用
+ * @param pythonPath - Python 解释器路径
+ * @returns 是否可用
+ */
+function isExternalPythonValid(pythonPath: string): boolean {
+  if (!pythonPath || !fs.existsSync(pythonPath)) return false
+  try {
+    const result = require('child_process').spawnSync(pythonPath, ['--version'], { encoding: 'utf-8', timeout: 5000 })
+    return result.status === 0
+  } catch {
+    return false
+  }
+}
+
 async function startPythonService() {
   const isDev = !app.isPackaged
   let pythonCmd: string
   let args: string[]
   let pythonCwd: string
+  let useExternalPython = false
 
-  if (isDev) {
+  // 读取 Python 环境配置
+  const pythonEnvConfig = readPythonEnvConfig()
+
+  // 优先使用用户配置的外部 Python 解释器
+  if (!isDev && pythonEnvConfig.pythonPath && isExternalPythonValid(pythonEnvConfig.pythonPath)) {
+    const pythonServicePath = getPythonServicePath()
+    pythonCmd = pythonEnvConfig.pythonPath
+    args = [path.join(pythonServicePath, 'app.py')]
+    pythonCwd = pythonServicePath
+    useExternalPython = true
+    console.log('使用外部 Python 解释器:', pythonCmd)
+  } else if (isDev) {
     // 开发模式：使用系统 Python
     const pythonServicePath = getPythonServicePath()
     pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
@@ -486,14 +555,19 @@ async function startPythonService() {
     console.warn('读取 GPU 配置失败:', err)
   }
 
-  // 读取 Python 环境配置，设置外部 site-packages 路径
+  // 设置 PYTHONPATH
   let pythonPathEnv = isDev ? getPythonServicePath() : pythonCwd
   try {
-    const pythonEnvConfigPath = path.join(getConfigDir(), 'python_env_config.json')
-    if (fs.existsSync(pythonEnvConfigPath)) {
-      const pythonEnvConfig = JSON.parse(fs.readFileSync(pythonEnvConfigPath, 'utf-8'))
-      if (pythonEnvConfig.sitePackagesPath && fs.existsSync(pythonEnvConfig.sitePackagesPath)) {
-        pythonPathEnv = pythonEnvConfig.sitePackagesPath + (process.platform === 'win32' ? ';' : ':') + pythonPathEnv
+    if (useExternalPython && pythonEnvConfig.sitePackagesPath && fs.existsSync(pythonEnvConfig.sitePackagesPath)) {
+      // 使用外部 Python 时，优先使用配置的 site-packages
+      pythonPathEnv = pythonEnvConfig.sitePackagesPath + (process.platform === 'win32' ? ';' : ':') + pythonPathEnv
+    } else {
+      const pythonEnvConfigPath = path.join(getConfigDir(), 'python_env_config.json')
+      if (fs.existsSync(pythonEnvConfigPath)) {
+        const pyConfig = JSON.parse(fs.readFileSync(pythonEnvConfigPath, 'utf-8'))
+        if (pyConfig.sitePackagesPath && fs.existsSync(pyConfig.sitePackagesPath)) {
+          pythonPathEnv = pyConfig.sitePackagesPath + (process.platform === 'win32' ? ';' : ':') + pythonPathEnv
+        }
       }
     }
   } catch (err) {
@@ -508,6 +582,7 @@ async function startPythonService() {
       PORT: String(pythonServicePort),
       CONFIG_DIR: getConfigDir(),
       MODEL_DIR: getModelsDir(),
+      LOG_DIR: getPythonLogDir(),
       ...gpuEnv
     } as Record<string, string>
   })
@@ -1682,14 +1757,170 @@ ipcMain.handle('save-python-env-config', async (_, config: any): Promise<{ succe
   }
 })
 
+/**
+ * 检测系统中的 Python 环境
+ * @returns 环境列表和推荐索引
+ */
+ipcMain.handle('detect-python-environments', async (): Promise<{ success: boolean; environments?: any[]; recommended?: number; message?: string }> => {
+  try {
+    const scriptPath = path.join(process.resourcesPath, 'build', 'detect-python.ps1')
+    // 开发模式下使用项目目录下的脚本
+    const devScriptPath = path.join(__dirname, '..', 'build', 'detect-python.ps1')
+    const actualScriptPath = fs.existsSync(scriptPath) ? scriptPath : devScriptPath
+
+    if (!fs.existsSync(actualScriptPath)) {
+      return { success: false, message: '检测脚本未找到' }
+    }
+
+    const output = execSync(
+      `powershell -ExecutionPolicy Bypass -NoProfile -Command "& '${actualScriptPath}' -Scan"`,
+      { encoding: 'utf-8', timeout: 60000 }
+    )
+    const result = JSON.parse(output.trim())
+    return { success: true, environments: result.environments || [], recommended: result.recommended }
+  } catch (error: any) {
+    console.error('检测 Python 环境失败:', error)
+    return { success: false, message: `检测 Python 环境失败: ${error.message || error}` }
+  }
+})
+
+/**
+ * 选择 Python 解释器路径
+ * @returns 选择的文件路径
+ */
+ipcMain.handle('select-python-path', async (): Promise<{ success: boolean; filePath?: string; canceled?: boolean; message?: string }> => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: '选择 Python 解释器',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Python 解释器', extensions: ['exe'] },
+        { name: '所有文件', extensions: ['*'] }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: true, canceled: true }
+    }
+    return { success: true, filePath: result.filePaths[0] }
+  } catch (error: any) {
+    return { success: false, message: `选择文件失败: ${error.message || error}` }
+  }
+})
+
+/**
+ * 验证 Python 环境
+ * @param _ - 事件对象
+ * @param pythonPath - Python 解释器路径
+ * @returns 验证结果
+ */
+ipcMain.handle('validate-python-env', async (_, pythonPath: string): Promise<{ success: boolean; valid?: boolean; torchVersion?: string; transformersVersion?: string; tokenizersVersion?: string; safetensorsVersion?: string; error?: string; message?: string }> => {
+  try {
+    const scriptPath = path.join(process.resourcesPath, 'build', 'detect-python.ps1')
+    const devScriptPath = path.join(__dirname, '..', 'build', 'detect-python.ps1')
+    const actualScriptPath = fs.existsSync(scriptPath) ? scriptPath : devScriptPath
+
+    if (!fs.existsSync(actualScriptPath)) {
+      return { success: false, message: '验证脚本未找到' }
+    }
+
+    const output = execSync(
+      `powershell -ExecutionPolicy Bypass -NoProfile -Command "& '${actualScriptPath}' -Validate '${pythonPath}'"`,
+      { encoding: 'utf-8', timeout: 30000 }
+    )
+    const result = JSON.parse(output.trim())
+    return {
+      success: true,
+      valid: result.valid,
+      torchVersion: result.torchVersion,
+      transformersVersion: result.transformersVersion,
+      tokenizersVersion: result.tokenizersVersion,
+      safetensorsVersion: result.safetensorsVersion,
+      error: result.error
+    }
+  } catch (error: any) {
+    console.error('验证 Python 环境失败:', error)
+    return { success: false, message: `验证 Python 环境失败: ${error.message || error}` }
+  }
+})
+
+/**
+ * 获取 Python 环境的 site-packages 路径
+ * @param _ - 事件对象
+ * @param pythonPath - Python 解释器路径
+ * @returns site-packages 路径
+ */
+ipcMain.handle('get-sitepackages-path', async (_, pythonPath: string): Promise<{ success: boolean; sitePackagesPath?: string; valid?: boolean; message?: string }> => {
+  try {
+    const scriptPath = path.join(process.resourcesPath, 'build', 'detect-python.ps1')
+    const devScriptPath = path.join(__dirname, '..', 'build', 'detect-python.ps1')
+    const actualScriptPath = fs.existsSync(scriptPath) ? scriptPath : devScriptPath
+
+    if (!fs.existsSync(actualScriptPath)) {
+      return { success: false, message: '脚本未找到' }
+    }
+
+    const output = execSync(
+      `powershell -ExecutionPolicy Bypass -NoProfile -Command "& '${actualScriptPath}' -GetSitePackages '${pythonPath}'"`,
+      { encoding: 'utf-8', timeout: 10000 }
+    )
+    const result = JSON.parse(output.trim())
+    return {
+      success: true,
+      sitePackagesPath: result.sitePackagesPath,
+      valid: result.valid
+    }
+  } catch (error: any) {
+    console.error('获取 site-packages 路径失败:', error)
+    return { success: false, message: `获取 site-packages 路径失败: ${error.message || error}` }
+  }
+})
+
 // ========== 应用生命周期 ==========
 
 app.whenReady().then(async () => {
   initDatabase()
   // 确保数据目录存在并初始化新的数据库
   ensureDataDir()
+  ensureLogDir()
   initPredictionDatabase()
   initFeedbackDatabase()
+
+  // 启动前检查 Python 环境配置
+  if (app.isPackaged) {
+    const pyConfig = readPythonEnvConfig()
+    if (!pyConfig.pythonPath) {
+      // 未配置 Python 环境，弹出提示
+      const result = await dialog.showMessageBox({
+        type: 'warning',
+        title: 'Python 环境未配置',
+        message: '未配置 Python 运行环境，AI 推理功能将不可用。',
+        detail: '本工具需要包含 torch、transformers 等依赖的 Python 环境。您可以在安装时配置，或在设置页面中手动配置。',
+        buttons: ['打开设置', '暂不配置'],
+        defaultId: 0,
+        cancelId: 1
+      })
+      if (result.response === 0) {
+        // 用户选择打开设置，先创建窗口再发送事件
+        createWindow()
+        setTimeout(() => {
+          mainWindow?.webContents.send('open-settings')
+        }, 500)
+        // 仍然启动 Python 服务（使用后备方案）
+        await startPythonService()
+        return
+      }
+    } else if (!isExternalPythonValid(pyConfig.pythonPath)) {
+      // 配置了但路径无效
+      await dialog.showMessageBox({
+        type: 'warning',
+        title: 'Python 环境无效',
+        message: '配置的 Python 环境已失效或无法访问。',
+        detail: `路径: ${pyConfig.pythonPath}\n将尝试使用内置 Python 运行（推理功能可能不可用）。请在设置中重新配置。`,
+        buttons: ['确定']
+      })
+    }
+  }
+
   await startPythonService()
   createWindow()
 

@@ -1,4 +1,4 @@
-﻿﻿@echo off
+﻿@echo off
 chcp 65001 >nul
 echo ========================================
 echo     数据标注工具 - Windows 打包
@@ -8,6 +8,9 @@ echo.
 :: 配置国内镜像源（避免 GitHub 连接超时）
 set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+
+:: 打包输出目录（需与 package.json 中 build.directories.output 保持一致）
+set "RELEASE_DIR=release-new"
 
 :: 检查 Node.js
 node -v >nul 2>&1
@@ -77,15 +80,16 @@ if errorlevel 1 (
 
 :: 验证安装包生成
 echo [验证] 检查安装包完整性...
-if not exist "release" (
-    echo [错误] release 目录不存在，打包可能失败
+set "RELEASE_DIR=release-new"
+if not exist "%RELEASE_DIR%" (
+    echo [错误] %RELEASE_DIR% 目录不存在，打包可能失败
     pause
     exit /b 1
 )
 
 :: 查找生成的 exe 安装程序
 set "installer_found="
-for /r "release" %%f in (*.exe) do (
+for /r "%RELEASE_DIR%" %%f in (*.exe) do (
     set "installer_found=1"
     echo [验证] 找到安装程序: %%f
     for %%a in ("%%f") do (
@@ -100,7 +104,7 @@ for /r "release" %%f in (*.exe) do (
 
 if not defined installer_found (
     echo [错误] 未找到安装程序 exe 文件
-    dir /s /b "release\*.exe"
+    dir /s /b "%RELEASE_DIR%\*.exe"
     pause
     exit /b 1
 )
@@ -108,7 +112,7 @@ if not defined installer_found (
 echo.
 echo ========================================
 echo [完成] 打包成功！
-echo 安装程序位于: release/ 目录
+echo 安装程序位于: %RELEASE_DIR%/ 目录
 echo ========================================
 echo.
 echo [注意] 用户安装后需手动将 models\abbr_mapper_nar\ 目录

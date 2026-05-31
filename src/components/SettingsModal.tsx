@@ -78,6 +78,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   // Python 环境配置状态
   const [pythonEnvConfig, setPythonEnvConfig] = useState<PythonEnvConfig>({ pythonPath: '', sitePackagesPath: '' })
   const [pythonEnvLoading, setPythonEnvLoading] = useState(false)
+  const [detectedEnvironments, setDetectedEnvironments] = useState<any[]>([])
+  const [validationResult, setValidationResult] = useState<{ valid?: boolean; torchVersion?: string; transformersVersion?: string; tokenizersVersion?: string; safetensorsVersion?: string; error?: string } | null>(null)
+  const [isDetecting, setIsDetecting] = useState(false)
+  const [isValidating, setIsValidating] = useState(false)
 
   // 日志配置状态
   const [logLevel, setLogLevel] = useState<string>('INFO')
@@ -163,11 +167,117 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           pythonPath: result.config.pythonPath || '',
           sitePackagesPath: result.config.sitePackagesPath || ''
         })
+        // 如果有已配置的 pythonPath，自动验证
+        if (result.config.pythonPath) {
+          await handleValidatePythonEnv(result.config.pythonPath)
+        }
       }
     } catch (error) {
       console.error('加载 Python 环境配置失败:', error)
     } finally {
       setPythonEnvLoading(false)
+    }
+  }
+
+  /**
+   * 自动检测系统中的 Python 环境
+   */
+  const handleDetectEnvironments = async () => {
+    if (!window.electronAPI) return
+    try {
+      setIsDetecting(true)
+      const result = await window.electronAPI.detectPythonEnvironments()
+      if (result.success && result.environments) {
+        setDetectedEnvironments(result.environments)
+        if (result.environments.length === 0) {
+          onMessage('⚠️ 未检测到任何 Python 环境')
+        } else {
+          const validCount = result.environments.filter((e: any) => e.valid).length
+          onMessage(`✅ 检测到 ${result.environments.length} 个 Python 环境，其中 ${validCount} 个满足依赖要求`)
+        }
+      } else {
+        onMessage(`❌ 检测失败: ${result.message}`)
+      }
+    } catch (error) {
+      onMessage(`❌ 检测 Python 环境失败: ${error}`)
+    } finally {
+      setIsDetecting(false)
+    }
+  }
+
+  /**
+   * 选择 Python 解释器路径
+   */
+  const handleSelectPythonPath = async () => {
+    if (!window.electronAPI) return
+    try {
+      const result = await window.electronAPI.selectPythonPath()
+      if (result.success && result.filePath) {
+        setPythonEnvConfig(prev => ({ ...prev, pythonPath: result.filePath! }))
+        // 自动验证并推导 site-packages
+        await handleValidatePythonEnv(result.filePath)
+        await handleGetSitePackages(result.filePath)
+      }
+    } catch (error) {
+      onMessage(`❌ 选择文件失败: ${error}`)
+    }
+  }
+
+  /**
+   * 验证 Python 环境
+   * @param pythonPath - Python 解释器路径
+   */
+  const handleValidatePythonEnv = async (pythonPath: string) => {
+    if (!window.electronAPI || !pythonPath) return
+    try {
+      setIsValidating(true)
+      const result = await window.electronAPI.validatePythonEnv(pythonPath)
+      if (result.success) {
+        setValidationResult({
+          valid: result.valid,
+          torchVersion: result.torchVersion,
+          transformersVersion: result.transformersVersion,
+          tokenizersVersion: result.tokenizersVersion,
+          safetensorsVersion: result.safetensorsVersion,
+          error: result.error
+        })
+      } else {
+        setValidationResult({ valid: false, error: result.message })
+      }
+    } catch (error) {
+      setValidationResult({ valid: false, error: String(error) })
+    } finally {
+      setIsValidating(false)
+    }
+  }
+
+  /**
+   * 获取 site-packages 路径
+   * @param pythonPath - Python 解释器路径
+   */
+  const handleGetSitePackages = async (pythonPath: string) => {
+    if (!window.electronAPI || !pythonPath) return
+    try {
+      const result = await window.electronAPI.getSitePackagesPath(pythonPath)
+      if (result.success && result.sitePackagesPath) {
+        setPythonEnvConfig(prev => ({ ...prev, sitePackagesPath: result.sitePackagesPath! }))
+      }
+    } catch (error) {
+      console.error('获取 site-packages 路径失败:', error)
+    }
+  }
+
+  /**
+   * 从下拉列表选择环境
+   * @param envPath - 选中的环境路径
+   */
+  const handleEnvironmentSelect = async (envPath: string) => {
+    setPythonEnvConfig(prev => ({ ...prev, pythonPath: envPath }))
+    if (envPath) {
+      await handleValidatePythonEnv(envPath)
+      await handleGetSitePackages(envPath)
+    } else {
+      setValidationResult(null)
     }
   }
 
@@ -613,25 +723,73 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             ) : activeTab === 'python' ? (
               /* Python 环境配置内容 */
               <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Python 运行环境
+                  </label>
+                  <button
+                    onClick={handleDetectEnvironments}
+                    disabled={isDetecting}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isDetecting ? (
+                      <>
+                        <span className="animate-spin inline-block w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full" />
+                        检测中...
+                      </>
+                    ) : (
+                      <>
+                        <Cpu className="w-3 h-3" />
+                        自动检测
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {detectedEnvironments.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                      检测到的环境（选择一项）
+                    </label>
+                    <select
+                      value={pythonEnvConfig.pythonPath}
+                      onChange={(e) => handleEnvironmentSelect(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                    >
+                      <option value="">-- 请选择 Python 环境 --</option>
+                      {detectedEnvironments.map((env, idx) => (
+                        <option key={idx} value={env.path}>
+                          {env.valid ? '✓' : '✗'} [{env.type}] {env.envName || 'Python'} ({env.path})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">
                     Python 解释器路径
                   </label>
-                  <input
-                    type="text"
-                    value={pythonEnvConfig.pythonPath}
-                    onChange={(e) => setPythonEnvConfig({ ...pythonEnvConfig, pythonPath: e.target.value })}
-                    placeholder="如: C:\\Python311\\python.exe（可选）"
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                  />
-                  <p className="mt-1 text-xs text-gray-400">
-                    指定客户端 Python 解释器路径，留空则使用系统默认 Python
-                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={pythonEnvConfig.pythonPath}
+                      onChange={(e) => setPythonEnvConfig({ ...pythonEnvConfig, pythonPath: e.target.value })}
+                      placeholder="如: C:\\Python311\\python.exe"
+                      className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    />
+                    <button
+                      onClick={handleSelectPythonPath}
+                      className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      浏览...
+                    </button>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    site-packages 目录路径
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                    site-packages 目录路径（自动推导，可手动修改）
                   </label>
                   <input
                     type="text"
@@ -640,10 +798,43 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     placeholder="如: C:\\Python311\\Lib\\site-packages"
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                   />
-                  <p className="mt-1 text-xs text-gray-400">
-                    指定包含 torch、transformers 等依赖的 site-packages 目录路径，打包后的程序将通过 PYTHONPATH 加载这些依赖
-                  </p>
                 </div>
+
+                {/* 验证状态 */}
+                {isValidating && (
+                  <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <span className="animate-spin inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full" />
+                    <span className="text-sm text-gray-600">正在验证环境...</span>
+                  </div>
+                )}
+
+                {!isValidating && validationResult && (
+                  <div className={`flex items-start gap-2 p-3 rounded-lg border ${validationResult.valid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                    {validationResult.valid ? (
+                      <>
+                        <Save className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm text-green-700">
+                          <p className="font-medium">✓ 环境验证通过</p>
+                          <div className="text-xs mt-1 space-y-0.5">
+                            {validationResult.torchVersion && <p>torch: {validationResult.torchVersion}</p>}
+                            {validationResult.transformersVersion && <p>transformers: {validationResult.transformersVersion}</p>}
+                            {validationResult.tokenizersVersion && <p>tokenizers: {validationResult.tokenizersVersion}</p>}
+                            {validationResult.safetensorsVersion && <p>safetensors: {validationResult.safetensorsVersion}</p>}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm text-red-700">
+                          <p className="font-medium">✗ 环境验证失败</p>
+                          <p className="text-xs mt-1">{validationResult.error || '未知错误'}</p>
+                          <p className="text-xs mt-1">请安装依赖: pip install torch torchvision torchaudio transformers tokenizers safetensors</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {showRestartHint && (
                   <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -655,14 +846,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
 
-                {!showRestartHint && (
+                {!showRestartHint && !validationResult?.valid && (
                   <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                     <AlertTriangle className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
                     <div className="text-xs text-blue-600">
                       <p>配置说明：</p>
-                      <p className="mt-1">1. 安装包默认不包含 torch、transformers 等大体积依赖</p>
-                      <p>2. 请在客户端自行安装：pip install torch torchvision torchaudio transformers</p>
-                      <p>3. 在此配置 site-packages 路径，让程序能够找到已安装的依赖</p>
+                      <p className="mt-1">1. 点击"自动检测"扫描系统中的 Python/conda 环境</p>
+                      <p>2. 选择包含 torch、transformers 等依赖的环境</p>
+                      <p>3. 或手动浏览选择 python.exe 路径</p>
+                      <p>4. site-packages 路径会根据选择的 Python 自动推导</p>
                     </div>
                   </div>
                 )}

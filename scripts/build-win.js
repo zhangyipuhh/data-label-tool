@@ -122,9 +122,11 @@ try {
 
   // 验证安装包
   console.log('\n🔍 验证安装包完整性...')
-  const releaseDir = path.join('release')
+  const packageJson = JSON.parse(fs.readFileSync(path.join('package.json'), 'utf-8'))
+  const outputDirName = packageJson.build?.directories?.output || 'release'
+  const releaseDir = path.join(outputDirName)
   if (!fs.existsSync(releaseDir)) {
-    console.error('❌ release 目录不存在，打包可能失败')
+    console.error(`❌ ${outputDirName} 目录不存在，打包可能失败`)
     process.exit(1)
   }
 
@@ -174,5 +176,5 @@ try {
   process.exit(1)
 }
 
-console.log('\n🎉 完成! 安装程序位于 release/ 目录')
+console.log(`\n🎉 完成! 安装程序位于 ${outputDirName}/ 目录`)
 console.log('\n✅ 提示: 安装后 resources/models/ 目录已自动创建，可将模型文件直接放入该目录')

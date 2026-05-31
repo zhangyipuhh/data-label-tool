@@ -514,6 +514,56 @@ interface ElectronAPI {
     message?: string
   }>
 
+  /**
+   * 检测系统中的 Python 环境
+   * @returns Promise<{ success: boolean; environments?: any[]; recommended?: number; message?: string }>
+   */
+  detectPythonEnvironments: () => Promise<{
+    success: boolean
+    environments?: any[]
+    recommended?: number
+    message?: string
+  }>
+
+  /**
+   * 选择 Python 解释器路径
+   * @returns Promise<{ success: boolean; filePath?: string; canceled?: boolean; message?: string }>
+   */
+  selectPythonPath: () => Promise<{
+    success: boolean
+    filePath?: string
+    canceled?: boolean
+    message?: string
+  }>
+
+  /**
+   * 验证 Python 环境
+   * @param pythonPath - Python 解释器路径
+   * @returns Promise<{ success: boolean; valid?: boolean; torchVersion?: string; transformersVersion?: string; error?: string; message?: string }>
+   */
+  validatePythonEnv: (pythonPath: string) => Promise<{
+    success: boolean
+    valid?: boolean
+    torchVersion?: string
+    transformersVersion?: string
+    tokenizersVersion?: string
+    safetensorsVersion?: string
+    error?: string
+    message?: string
+  }>
+
+  /**
+   * 获取 Python 环境的 site-packages 路径
+   * @param pythonPath - Python 解释器路径
+   * @returns Promise<{ success: boolean; sitePackagesPath?: string; valid?: boolean; message?: string }>
+   */
+  getSitePackagesPath: (pythonPath: string) => Promise<{
+    success: boolean
+    sitePackagesPath?: string
+    valid?: boolean
+    message?: string
+  }>
+
   // ========== 事件监听 ==========
 
   /**

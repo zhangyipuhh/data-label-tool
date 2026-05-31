@@ -82,6 +82,24 @@ def get_config_dir():
     return os.path.join(get_base_dir(), "..", "config")
 
 
+def get_log_dir():
+    """获取日志目录路径
+
+    优先使用环境变量 LOG_DIR（由 Electron 传入），
+    确保打包后日志写入用户数据目录（有写入权限）。
+    未设置环境变量时回退到配置文件中 log_dir 的相对路径。
+
+    返回:
+        str: 日志目录的绝对路径
+    """
+    env_dir = os.environ.get('LOG_DIR')
+    if env_dir:
+        return env_dir
+    config = _logging_config_cache or _get_default_config()
+    log_dir_name = config.get("log_dir", "log")
+    return os.path.join(get_base_dir(), log_dir_name)
+
+
 def _get_default_config():
     """获取默认日志配置
 
@@ -179,7 +197,7 @@ def setup_logging():
         console_handler.stream.reconfigure(encoding='utf-8')
     root_logger.addHandler(console_handler)
 
-    log_dir = os.path.join(get_base_dir(), config.get("log_dir", "log"))
+    log_dir = get_log_dir()
     log_file = config.get("log_file", "python_service.log")
     log_path = os.path.join(log_dir, log_file)
     max_bytes = config.get("max_bytes", 1048576)

@@ -21,6 +21,8 @@ hiddenimports = [
     'numpy.core',
     'numpy.core._methods',
     'timeit',  # torch 依赖的标准库，PyInstaller 可能遗漏
+    'unittest',  # torch 内部依赖 unittest
+    'unittest.mock',
     'contextlib',
     'functools',
     'inspect',
@@ -57,7 +59,6 @@ excludes = [
     'matplotlib', 'seaborn', 'tensorboard',
     'datasets', 'peft', 'evaluate', 'accelerate',
     'IPython', 'notebook', 'jupyter', 'tkinter',
-    'unittest', 'test', 'tests',
     'scipy', 'pandas', 'tqdm',
     'sklearn', 'scikit-learn',
 ]

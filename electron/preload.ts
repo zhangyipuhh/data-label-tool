@@ -353,5 +353,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @param config - 日志配置对象
    * @returns Promise<{ success: boolean; message?: string }>
    */
-  saveLoggingConfig: (config: { level: string }) => ipcRenderer.invoke('save-logging-config', config)
+  saveLoggingConfig: (config: { level: string }) => ipcRenderer.invoke('save-logging-config', config),
+
+  /**
+   * 检测系统中的 Python 环境
+   * @returns Promise<{ success: boolean; environments?: any[]; recommended?: number; message?: string }>
+   */
+  detectPythonEnvironments: () => ipcRenderer.invoke('detect-python-environments'),
+
+  /**
+   * 选择 Python 解释器路径
+   * @returns Promise<{ success: boolean; filePath?: string; canceled?: boolean; message?: string }>
+   */
+  selectPythonPath: () => ipcRenderer.invoke('select-python-path'),
+
+  /**
+   * 验证 Python 环境
+   * @param pythonPath - Python 解释器路径
+   * @returns Promise<{ success: boolean; valid?: boolean; torchVersion?: string; transformersVersion?: string; error?: string; message?: string }>
+   */
+  validatePythonEnv: (pythonPath: string) => ipcRenderer.invoke('validate-python-env', pythonPath),
+
+  /**
+   * 获取 Python 环境的 site-packages 路径
+   * @param pythonPath - Python 解释器路径
+   * @returns Promise<{ success: boolean; sitePackagesPath?: string; valid?: boolean; message?: string }>
+   */
+  getSitePackagesPath: (pythonPath: string) => ipcRenderer.invoke('get-sitepackages-path', pythonPath)
 })
