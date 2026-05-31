@@ -537,6 +537,15 @@ async function startPythonService() {
   }
 
   console.log('启动 Python 服务:', pythonCmd, '端口:', pythonServicePort)
+  console.log('Python 工作目录:', pythonCwd)
+  console.log('LOG_DIR:', getPythonLogDir())
+
+  // 打包模式下检查 app.exe 是否存在
+  if (!isDev && !useExternalPython && !fs.existsSync(pythonCmd)) {
+    console.error('❌ PyInstaller 可执行文件不存在:', pythonCmd)
+    console.error('   请确认已运行 scripts/build-win.js 打包 Python 服务')
+    return
+  }
 
   // 读取 GPU 配置，传递给 Python 服务
   const gpuConfigPath = path.join(getConfigDir(), 'gpu_config.json')
@@ -589,6 +598,7 @@ async function startPythonService() {
 
   pythonProcess.stdout?.on('data', (data) => console.log(`Python: ${data}`))
   pythonProcess.stderr?.on('data', (data) => console.error(`Python Error: ${data}`))
+  pythonProcess.on('error', (err) => console.error('Python 服务启动失败:', err))
   pythonProcess.on('close', (code) => console.log(`Python 服务退出，代码: ${code}`))
 }
 

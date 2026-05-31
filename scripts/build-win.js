@@ -94,15 +94,69 @@ try {
   process.exit(1)
 }
 
-// 验证 Python 打包输出
-const appExePath = path.join(pythonDistDir, 'app', 'app.exe')
-if (!fs.existsSync(appExePath)) {
-  console.error('❌ Python 服务可执行文件未生成:', appExePath)
+// 验证 Python 打包输出（兼容 PyInstaller 5.x/6.x 不同输出结构）
+const possiblePaths = [
+  path.join(pythonDistDir, 'app', 'app.exe'),
+  path.join(pythonDistDir, 'app.exe')
+]
+let appExePath = null
+for (const p of possiblePaths) {
+  if (fs.existsSync(p)) {
+    appExePath = p
+    break
+  }
+}
+if (!appExePath) {
+  console.error('❌ Python 服务可执行文件未生成')
+  console.error('   期望路径之一:', possiblePaths.join(' 或 '))
+  if (fs.existsSync(pythonDistDir)) {
+    console.error('   python_dist 目录内容:')
+    try {
+      const entries = fs.readdirSync(pythonDistDir, { withFileTypes: true })
+      entries.forEach(e => {
+        const type = e.isDirectory() ? '[DIR]' : '[FILE]'
+        console.error(`     ${type} ${e.name}`)
+      })
+    } catch (err) {
+      console.error('   无法读取目录:', err.message)
+    }
+  } else {
+    console.error('   python_dist 目录不存在')
+  }
   process.exit(1)
 }
 console.log(`✅ Python 服务可执行文件: ${appExePath}`)
 
-// 7. 检查图标
+// 规范化输出结构：确保为 python_dist/app/ 目录（与 package.json extraResources 匹配）
+const expectedAppDir = path.join(pythonDistDir, 'app')
+if (path.dirname(appExePath) !== expectedAppDir) {
+  console.log('⚠️  检测到 PyInstaller 输出结构非目录模式，进行规范化...')
+  if (!fs.existsSync(expectedAppDir)) {
+    fs.mkdirSync(expectedAppDir, { recursive: true })
+  }
+  // 移动 app.exe
+  const targetExe = path.join(expectedAppDir, 'app.exe')
+  fs.renameSync(appExePath, targetExe)
+  appExePath = targetExe
+  // 移动 _internal 目录（如果存在）
+  const internalDir = path.join(pythonDistDir, '_internal')
+  if (fs.existsSync(internalDir)) {
+    const targetInternal = path.join(expectedAppDir, '_internal')
+    fs.renameSync(internalDir, targetInternal)
+    console.log('   ✅ _internal 目录已移动')
+  }
+  // 移动其他文件/目录
+  const entries = fs.readdirSync(pythonDistDir, { withFileTypes: true })
+  for (const entry of entries) {
+    const src = path.join(pythonDistDir, entry.name)
+    if (src === expectedAppDir) continue
+    const dst = path.join(expectedAppDir, entry.name)
+    fs.renameSync(src, dst)
+  }
+  console.log('   ✅ 输出结构已规范化为 python_dist/app/')
+}
+
+// 8. 检查图标
 const iconPath = path.join('build', 'icon.ico')
 if (!fs.existsSync(iconPath)) {
   console.warn(`⚠️  图标文件不存在: ${iconPath}`)
@@ -114,7 +168,7 @@ if (!fs.existsSync(iconPath)) {
   }
 }
 
-// 7. 执行 Electron 打包
+// 9. 执行 Electron 打包
 console.log('\n🔨 构建 Electron 应用...')
 try {
   execSync('npm run build:win', { stdio: 'inherit' })

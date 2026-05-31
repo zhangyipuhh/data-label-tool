@@ -203,6 +203,8 @@ def setup_logging():
     max_bytes = config.get("max_bytes", 1048576)
     backup_count = config.get("backup_count", 5)
 
+    pre_log("INFO", f"日志目录: {log_dir}, 日志文件: {log_path}")
+
     try:
         os.makedirs(log_dir, exist_ok=True)
         file_handler = RotatingFileHandler(
@@ -214,6 +216,7 @@ def setup_logging():
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
+        pre_log("INFO", f"日志文件初始化成功: {log_path}")
     except (OSError, IOError) as e:
         pre_log("WARNING", f"创建日志文件失败: {e}，日志将仅输出到终端")
 

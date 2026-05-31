@@ -49,7 +49,7 @@ hiddenimports = [
     'importlib',
     'importlib.util',
     'importlib.machinery',
-]
+] + collect_submodules('waitress') + collect_submodules('flask')
 
 # 排除大体积依赖（由客户端自行安装）和训练/可视化专用库
 excludes = [

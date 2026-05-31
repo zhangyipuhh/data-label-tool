@@ -60,8 +60,14 @@ from text_filter import get_text_filter, FilterResultType
 from config_manager import get_config_manager
 
 # 设置 stdout/stderr 编码为 utf-8，解决 Windows 终端中文乱码问题
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+# 打包后通过 Electron spawn 启动时 stdout 可能被重定向，需要保护
+try:
+    if sys.stdout and hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    if sys.stderr and hasattr(sys.stderr, 'buffer'):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+except (AttributeError, OSError):
+    pass
 
 # 初始化日志系统（从配置文件读取日志级别）
 setup_logging()
