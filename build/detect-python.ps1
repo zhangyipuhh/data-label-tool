@@ -106,7 +106,15 @@ function Get-SitePkg($PythonPath) {
     try {
         $out = & $PythonPath -c "import site; print(site.getsitepackages()[0] if site.getsitepackages() else site.getusersitepackages())" 2>$null | Out-String
         $t = $out.Trim()
-        if ($t -and (Test-Path $t)) { return $t }
+        # 修正：优先返回 Lib\site-packages 或 site-packages 子目录，避免 conda 环境返回根目录
+        if ($t -and (Test-Path $t)) {
+            $sitePkg = Join-Path $t "Lib\site-packages"
+            if (Test-Path $sitePkg) { return $sitePkg }
+            $sitePkg = Join-Path $t "site-packages"
+            if (Test-Path $sitePkg) { return $sitePkg }
+            if ($t -like "*site-packages*") { return $t }
+            return $t
+        }
     } catch {}
     try {
         $out = & $PythonPath -c "import sys; [print(p) for p in sys.path if 'site-packages' in p]" 2>$null | Out-String

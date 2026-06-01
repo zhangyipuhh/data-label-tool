@@ -510,12 +510,14 @@ async function startPythonService() {
 
   // 优先使用用户配置的外部 Python 解释器
   if (!isDev && pythonEnvConfig.pythonPath && isExternalPythonValid(pythonEnvConfig.pythonPath)) {
-    const pythonServicePath = getPythonServicePath()
+    // 打包模式下原始 Python 源码在 python_service_src，PyInstaller 输出在 python_service
+    const pythonServiceSrcPath = path.join(process.resourcesPath, 'python_service_src')
     pythonCmd = pythonEnvConfig.pythonPath
-    args = [path.join(pythonServicePath, 'app.py')]
-    pythonCwd = pythonServicePath
+    args = [path.join(pythonServiceSrcPath, 'app.py')]
+    pythonCwd = pythonServiceSrcPath
     useExternalPython = true
     console.log('使用外部 Python 解释器:', pythonCmd)
+    console.log('Python 服务源码路径:', pythonServiceSrcPath)
   } else if (isDev) {
     // 开发模式：使用系统 Python
     const pythonServicePath = getPythonServicePath()

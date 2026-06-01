@@ -55,6 +55,13 @@
         ]
       },
       {
+        "from": "python_service",
+        "to": "python_service_src",
+        "filter": [
+          "*.py"
+        ]
+      },
+      {
         "from": "config",
         "to": "config",
         "filter": [

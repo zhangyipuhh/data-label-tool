@@ -31,16 +31,19 @@ if getattr(sys, 'frozen', False):
         for _p in _env_pythonpath.split(';' if sys.platform == 'win32' else ':'):
             _p = _p.strip()
             if _p and os.path.isdir(_p) and _p not in sys.path:
-                sys.path.insert(0, _p)
-                _site_packages_paths.append(_p)
+                # 避免将 conda 环境根目录等错误路径加入 sys.path
+                # 只接受真正的 site-packages 路径或包含目标包的路径
+                if 'site-packages' in _p or os.path.exists(os.path.join(_p, 'torch', '__init__.py')):
+                    sys.path.insert(0, _p)
+                    _site_packages_paths.append(_p)
 
 # 尝试导入 torch 和 transformers（大依赖由客户端自行安装，不打包进可执行文件）
 # 调试：记录 sys.path 和 PYTHONPATH，帮助排查导入问题
 if getattr(sys, 'frozen', False):
-    pre_log("DEBUG", f"sys.frozen = True")
-    pre_log("DEBUG", f"PYTHONPATH = {os.environ.get('PYTHONPATH', 'NOT SET')}")
-    pre_log("DEBUG", f"sys.path = {sys.path}")
-    pre_log("DEBUG", f"site-packages injected = {_site_packages_paths}")
+    pre_log("INFO", f"sys.frozen = True")
+    pre_log("INFO", f"PYTHONPATH = {os.environ.get('PYTHONPATH', 'NOT SET')}")
+    pre_log("INFO", f"sys.path = {sys.path}")
+    pre_log("INFO", f"site-packages injected = {_site_packages_paths}")
 
 try:
     import torch
