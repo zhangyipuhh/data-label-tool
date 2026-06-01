@@ -1,4 +1,4 @@
-# 数据标注工具 - PowerShell 快速启动脚本
+﻿# 数据标注工具 - PowerShell 快速启动脚本
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "    数据标注工具 - 快速启动" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan

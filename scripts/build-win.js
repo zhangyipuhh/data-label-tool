@@ -170,14 +170,14 @@ if (!fs.existsSync(iconPath)) {
 
 // 9. 执行 Electron 打包
 console.log('\n🔨 构建 Electron 应用...')
+const packageJson = JSON.parse(fs.readFileSync(path.join('package.json'), 'utf-8'))
+const outputDirName = packageJson.build?.directories?.output || 'release'
 try {
   execSync('npm run build:win', { stdio: 'inherit' })
   console.log('\n✅ 打包完成!')
 
   // 验证安装包
   console.log('\n🔍 验证安装包完整性...')
-  const packageJson = JSON.parse(fs.readFileSync(path.join('package.json'), 'utf-8'))
-  const outputDirName = packageJson.build?.directories?.output || 'release'
   const releaseDir = path.join(outputDirName)
   if (!fs.existsSync(releaseDir)) {
     console.error(`❌ ${outputDirName} 目录不存在，打包可能失败`)
